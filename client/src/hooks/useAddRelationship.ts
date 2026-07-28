@@ -8,7 +8,7 @@ async function addRelationship(
     return apiRequest('POST /dbf/session/relationship', { body: input })
 }
 
-export function useAddRelationshiop(){
+export function useAddRelationship(){
     return useApiMutation<AddManualRelationshipInput, DbfRelationshipGraph, ApiError>(
         addRelationship,
     )

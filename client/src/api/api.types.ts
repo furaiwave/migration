@@ -91,7 +91,7 @@ export interface AutoFkRelationship {
     readonly sourceField: string
     readonly targetFile: FileName
     readonly targetField: string
-    readonly label?: string
+    readonly inferredFrom: string
 }
 
 export interface ManualRelationship {
@@ -119,7 +119,7 @@ export interface DbfRelationshipGraph {
     }
 }
 
-export interface ParseMutlipleResult { 
+export interface ParseMultipleResult { 
     readonly sessionId: string
     readonly files: readonly DbfFilePreview[]
     readonly graph: DbfRelationshipGraph
