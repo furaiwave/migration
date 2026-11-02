@@ -11,7 +11,8 @@ interface FileDropzoneProps {
     readonly onSubmit: (files: File[], previewRows: number) => void
 }
 
-const DBF_PATTERN = /\/dbf$/i 
+// Tables plus their memo files (.fpt FoxPro, .dbt dBASE), matched by name on the server.
+const DBF_PATTERN = /\.(dbf|fpt|dbt)$/i
 export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneProps) {
     const[dragging, setDragging] = useState(false)
     const[files, setFiles] = useState<File[]>([])
@@ -42,34 +43,35 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 role="button"
                 tabIndex={0}
                 onClick={() => inputRef.current?.click()}
-                onKeyDown={(e) => (e.key === 'Enter' || e.key === '') && inputRef.current?.click()}
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
                 onDragOver={(e) => {e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => { e.preventDefault(); setDragging(false); ingest(e.dataTransfer.files); }}
                 className={cn(
-                    'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px06 py012 text-center transition-colors',
+                    'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors',
                     dragging ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-border',
                 )}
             >
                 <Upload className={cn('size-8', dragging ? 'text-primary' : 'text-muted-foreground')} />
                 <div>
-                    <p className="text-sm font-medium">Drop .dbf files here, or click to choose</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Up to 20 files. Related tables are detected automatically.</p>
+                    <p className="text-sm font-medium">Drop .dbf files here (with their .fpt/.dbt memo files), or click to choose</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Up to 20 tables. Related tables are detected automatically.</p>
                 </div>
                 <Input 
                     ref={inputRef}
                     type="file"
-                    accept=".dbf"
+                    accept=".dbf,.fpt,.dbt"
                     multiple
                     className="hidden"
-                    onChange={(e) => ingest(e.target.files)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => { ingest(e.target.files); e.target.value = '' }}
                 />
             </div>
 
             {rejected.length > 0 && (
                 <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                     <FileX2 className="mt-0.5 size-3.5 shrink-0" />
-                    <span>Skipped non-.dbf files: {rejected.join(', ')}</span>
+                    <span>Skipped files that are not .dbf/.fpt/.dbt: {rejected.join(', ')}</span>
                 </div>
             )}
 
@@ -92,7 +94,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 <p className="text-sm text-destructive">{errorMessage}</p>
             )}
 
-            <div className="flex items-end justify-betweem gap-4">
+            <div className="flex items-end justify-between gap-4">
                 <div className="flex flex-col gap-1.5">
                     <Label htmlFor="previewRows" className="text-xs text-muted-foreground">Preview Rows</Label>
                     <Input 

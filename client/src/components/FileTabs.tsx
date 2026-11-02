@@ -11,12 +11,12 @@ export function FileTabs({ files }: FileTabsProps) {
 
   return (
     <Tabs defaultValue={files[0]!.fileName} className="flex flex-col gap-4">
-      <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
+      <TabsList className="flex h-auto! w-full flex-wrap justify-start gap-1 bg-transparent p-0">
         {files.map((f) => (
           <TabsTrigger
             key={f.fileName}
             value={f.fileName}
-            className="rounded-md border border-border/50 bg-card/40 font-mono data-[state=active]:border-primary/50 data-[state=active]:bg-primary/10"
+            className="rounded-md border border-border/50 bg-card/40 font-mono flex-none px-3 data-active:border-primary/50 data-active:bg-primary/10"
           >
             {f.fileName}
             <span className="ml-1.5 text-xs text-muted-foreground">{f.totalRecords.toLocaleString()}</span>

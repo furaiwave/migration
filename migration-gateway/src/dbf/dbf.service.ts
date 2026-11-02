@@ -1,15 +1,13 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import * as path from 'path'
-import * as fs from 'fs'
-import * as os from 'os'
-import { parseDbfNative } from '../addon';
+import { parseDbfBuffer } from '../addon';
+import { memoFormatOf, openMemo } from '../memo';
 import { DbfSessionService } from './dbf-session.service';
 import { DbfRelationshipService } from './dbf.relationship.service';
 import { DBF_FILE_TYPES } from '../types/dbf-file-types.types';
 import { DbfFileTypeByte, DbfTableFlags } from '../types/dbf-file-types.types';
 import { DbfRecordCount } from '../types/dbf-field.types';
 import { DbfParseResult } from '../types/dbf-result.types';
-import { ParsedFileMap } from '../types/dbf-session.types';
+import { MemoSource, ParsedFileMap, SourceFileMap } from '../types/dbf-session.types';
 import { DbfRelationshipGraph } from '../types/dbf-relationship.types';
 import { toFileName, toSessionId } from '../types/dbf-relationship.types';
 
@@ -25,6 +23,8 @@ export interface DbfFilePreview{
     readonly fieldsNames: string[]
     readonly preview: ReadonlyArray<Readonly<Record<string, string>>>
     readonly totalRecords: number
+    readonly encoding: string
+    readonly memoFile: string | null
 }
 
 export interface ParseMultipleResult{
@@ -32,6 +32,8 @@ export interface ParseMultipleResult{
     readonly files: readonly DbfFilePreview[]
     readonly graph: DbfRelationshipGraph
 }
+
+const baseName = (fileName: string): string => fileName.replace(/\.[^.]+$/, '').toUpperCase()
 
 @Injectable()
 export class DbfService {
@@ -42,15 +44,10 @@ export class DbfService {
         private readonly relationShipService: DbfRelationshipService
     ) {}
 
-    private parseSingle(file: UploadedDbfFile, previewRows: number): DbfParseResult {
-        const tmpPath = path.join(
-            os.tmpdir(),
-            `dbf_${Date.now()}_${Math.random().toString(36).slice(2)}.dbf`
-        )
-        fs.writeFileSync(tmpPath, file.buffer)
-
+    private parseSingle(file: UploadedDbfFile, memo: MemoSource | null, previewRows: number): DbfParseResult {
         try {
-            const raw = parseDbfNative(tmpPath, previewRows)
+            const reader = memo ? openMemo(memo.buffer, memo.format) : null
+            const raw = parseDbfBuffer(file.buffer, previewRows, reader)
             const rh = raw.header
 
             const tableFlags: DbfTableFlags = {
@@ -77,10 +74,12 @@ export class DbfService {
                 },
 
                 preview: raw.preview.map(row => Object.fromEntries(fieldNames.map((name, i) => [name, row[i] ?? '']))),
-                totalRecords: rh.recordCount
-            } 
-        } finally {
-            try { fs.unlinkSync(tmpPath) } catch { }
+                totalRecords: raw.liveRecords,
+                encoding: raw.encoding,
+                memoFile: memo?.fileName ?? null,
+            }
+        } catch (err) {
+            throw new BadRequestException(`${file.originalName}: ${err instanceof Error ? err.message : String(err)}`)
         }
     }
 
@@ -88,22 +87,41 @@ export class DbfService {
         files: UploadedDbfFile[],
         previewRows: number = 20
     ) : ParseMultipleResult {
-        if(files.length === 0) 
+        const dbfFiles = files.filter(f => /\.dbf$/i.test(f.originalName))
+        if(dbfFiles.length === 0)
             throw new BadRequestException('At least one .dbf file is required')
-        
-        if(files.length === 20)
-            throw new BadRequestException('Maximu 20 files per session')
-        
+
+        if(dbfFiles.length > 20)
+            throw new BadRequestException('Maximum 20 .dbf files per session')
+
+        // A memo file belongs to the table with the same base name: CLIENTS.FPT ↔ CLIENTS.DBF.
+        const memoByBase = new Map<string, MemoSource>()
+        for(const f of files){
+            const format = memoFormatOf(f.originalName)
+            if(format) memoByBase.set(baseName(f.originalName), { fileName: f.originalName.toUpperCase(), format, buffer: f.buffer })
+        }
+        const dbfBases = new Set(dbfFiles.map(f => baseName(f.originalName)))
+        const orphanMemos = [...memoByBase.entries()].filter(([base]) => !dbfBases.has(base)).map(([, m]) => m.fileName)
+        if(orphanMemos.length > 0)
+            throw new BadRequestException(`No matching .dbf for memo file(s): ${orphanMemos.join(', ')}`)
+
+        const named = dbfFiles.map(file => [
+            toFileName(file.originalName.toUpperCase()),
+            file,
+            memoByBase.get(baseName(file.originalName)) ?? null,
+        ] as const)
 
         const parsedMap: ParsedFileMap = new Map(
-            files.map(file => {
-                const fileName = toFileName(file.originalName.toUpperCase())
-                this.logger.log(`Parsing: ${fileName} (${file.size}) bytes`)
-                return [fileName, this.parseSingle(file, previewRows)] as const
+            named.map(([fileName, file, memo]) => {
+                this.logger.log(`Parsing: ${fileName} (${file.size} bytes)${memo ? ` + ${memo.fileName}` : ''}`)
+                return [fileName, this.parseSingle(file, memo, previewRows)] as const
             })
         )
+        const sources: SourceFileMap = new Map(
+            named.map(([fileName, file, memo]) => [fileName, { dbf: file.buffer, memo }] as const)
+        )
 
-        const session = this.sessionService.createSession(parsedMap)
+        const session = this.sessionService.createSession(parsedMap, sources)
         const graph = this.relationShipService.buildGraph(parsedMap, session.manualRels)
 
         const filePreview: DbfFilePreview[] = [...parsedMap.entries()].map(
@@ -113,6 +131,8 @@ export class DbfService {
                 fieldsNames: result.header.fields.map(f => f.name),
                 preview: result.preview,
                 totalRecords: result.totalRecords,
+                encoding: result.encoding,
+                memoFile: result.memoFile,
             })
         )
 

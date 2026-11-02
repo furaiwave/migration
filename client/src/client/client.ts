@@ -1,11 +1,20 @@
-import type { ParseMutlipleResult, DbfRelationshipGraph, AddManualRelationshipInput } from "@/api/api.types";
+import type {
+    ParseMultipleResult,
+    DbfRelationshipGraph,
+    AddManualRelationshipInput,
+    MysqlExportOptions,
+    MysqlExportPlan,
+    MysqlConnectionInput,
+    MysqlConnectionInfo,
+    MysqlImportResult,
+} from "@/api/api.types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 
 export interface ApiRoutes {
     'POST /dbf/parse-multiple': {
         body: FormData
-        response: ParseMutlipleResult
+        response: ParseMultipleResult
     }
     'GET /dbf/session/:id/graph': {
         body: never
@@ -14,6 +23,22 @@ export interface ApiRoutes {
     'POST /dbf/session/relationship': {
         body: AddManualRelationshipInput
         response: DbfRelationshipGraph
+    }
+    'POST /dbf/session/:id/mysql/plan': {
+        body: MysqlExportOptions
+        response: MysqlExportPlan
+    }
+    'POST /dbf/session/:id/mysql/export': {
+        body: MysqlExportOptions
+        response: Blob
+    }
+    'POST /dbf/session/:id/mysql/import': {
+        body: MysqlExportOptions & MysqlConnectionInput
+        response: MysqlImportResult
+    }
+    'POST /dbf/mysql/test-connection': {
+        body: MysqlConnectionInput
+        response: MysqlConnectionInfo
     }
     'DELETE /dbf/session/:id': {
         body: never
@@ -78,9 +103,12 @@ export async function apiRequest<R extends ApiRoute>(
 
     if(!res.ok){
         let parsed: unknown = null
-        try { parsed = await res.json() } catch {}
+        try { parsed = await res.json() } catch { /* non-JSON error body */ }
         throw new ApiError(res.status, res.statusText, parsed)
     }
     if(res.status === 204) return undefined as ResponseOf<R>
+    // Files (e.g. the .sql dump) come back as a Blob; everything else is JSON.
+    const contentType = res.headers.get('content-type') ?? ''
+    if(!contentType.includes('application/json')) return (await res.blob()) as ResponseOf<R>
     return (await res.json()) as ResponseOf<R>
 }

@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import type { DbfFileTypeByte } from './types/dbf-file-types.types'
 import type { DbfFieldDescriptor, DbfFieldOffset, DbfFieldTypeCode } from './types/dbf-field.types'
+import { decodeMemoText, isMemoField, isTextMemo, memoBlockOf, VFP_TYPE_BYTES, type MemoReader } from './memo'
 
 /**
  * Pure-TypeScript .DBF reader.
@@ -32,6 +33,10 @@ export interface RawDbfHeader {
 
 export interface RawDbfParseResult {
     readonly header: RawDbfHeader
+    /** TextDecoder label resolved from the code page mark. */
+    readonly encoding: string
+    /** Records not marked deleted; the header's recordCount includes deleted ones. */
+    readonly liveRecords: number
     /** Record preview: array of rows, each row holding field values by index. */
     readonly preview: string[][]
 }
@@ -41,6 +46,7 @@ const FIELD_DESCRIPTOR_SIZE = 32
 const FIELD_TERMINATOR = 0x0d
 const HEADER_TERMINATOR = 0x1a
 const DELETED_FLAG = 0x2a // '*'
+const PREVIEW_MEMO_CHARS = 200
 
 /**
  * Code page mark (byte 29) -> TextDecoder label.
@@ -95,26 +101,110 @@ const CODE_PAGE_LABELS: Readonly<Record<number, string>> = {
     0xcc: 'windows-1257',
 }
 
-/** Builds a decoder from the code page mark; falls back to latin1 on failure. */
-function resolveDecoder(codePageByte: number): TextDecoder {
-    const label = CODE_PAGE_LABELS[codePageByte]
-    if (label) {
-        try {
-            return new TextDecoder(label)
-        } catch {
-            /* label not supported by ICU — fall back to latin1 below */
-        }
+/** Whether TextDecoder (Node's ICU) understands the given encoding label. */
+export function isSupportedEncoding(label: string): boolean {
+    try {
+        new TextDecoder(label)
+        return true
+    } catch {
+        return false
     }
-    return new TextDecoder('latin1')
 }
 
-function decodeField(decoder: TextDecoder, slice: Uint8Array): string {
+/** Encoding label from the code page mark, or null when the mark is missing/unknown/unsupported. */
+export function encodingFromCodePage(codePageByte: number): string | null {
+    const label = CODE_PAGE_LABELS[codePageByte]
+    return label && isSupportedEncoding(label) ? label : null
+}
+
+const CYRILLIC_CANDIDATES = ['cp866', 'windows-1251', 'koi8-r'] as const
+// The most frequent Russian letters; wrong decodings land on rarer letters or pseudographics.
+const FREQUENT_RUSSIAN = new Set('оеаинтсрвлкмдпуОЕАИНТСРВЛКМДПУ')
+const DETECT_SAMPLE_BYTES = 256 * 1024
+
+/**
+ * Guesses the encoding of unmarked text (code page byte 0 is common in DOS-era Russian files).
+ * Pure ASCII → latin1; otherwise the Cyrillic code page whose decoding yields the most frequent
+ * Russian letters, as long as it explains most of the non-ASCII bytes; else latin1.
+ */
+export function detectEncoding(sample: Buffer): string {
+    let highBytes = 0
+    for (const b of sample) if (b >= 0x80) highBytes++
+    if (highBytes === 0) return 'latin1'
+
+    let best: { label: string; score: number } | null = null
+    for (const label of CYRILLIC_CANDIDATES) {
+        let score = 0
+        for (const ch of new TextDecoder(label).decode(sample)) if (FREQUENT_RUSSIAN.has(ch)) score++
+        if (!best || score > best.score) best = { label, score }
+    }
+    // Frequent letters are roughly two thirds of Russian text; demand a clear majority of the high bytes.
+    return best && best.score >= highBytes * 0.4 ? best.label : 'latin1'
+}
+
+export function decodeField(decoder: TextDecoder, slice: Uint8Array): string {
     return decoder.decode(slice).replace(/\0+$/, '').trim()
 }
 
-export function parseDbfNative(filePath: string, previewRows: number): RawDbfParseResult {
-    const buffer = fs.readFileSync(filePath)
+type RecordLayout = Pick<RawDbfHeader, 'firstRecordOffset' | 'recordLength' | 'recordCount'>
 
+/** Yields every live record (deleted ones skipped) as a slice; field offsets are relative to it. */
+export function* iterateRecords(buffer: Buffer, layout: RecordLayout): Generator<Buffer> {
+    const { firstRecordOffset, recordLength, recordCount } = layout
+    let recordStart = firstRecordOffset
+
+    for (
+        let scanned = 0;
+        scanned < recordCount && recordStart + recordLength <= buffer.length;
+        scanned++, recordStart += recordLength
+    ) {
+        const flag = buffer.readUInt8(recordStart)
+        // EOF marker or deleted record — skip deleted ones, stop at EOF
+        if (flag === HEADER_TERMINATOR) return
+        if (flag === DELETED_FLAG) continue
+        yield buffer.subarray(recordStart, recordStart + recordLength)
+    }
+}
+
+/** Memo cell for the preview table: the text itself, or a "(memo: …)" marker the client styles. */
+function previewMemo(slice: Buffer, isText: boolean, decoder: TextDecoder, memo: MemoReader | null): string {
+    const block = memoBlockOf(slice)
+    if (block === 0) return ''
+    if (!memo) return `(memo: block ${block}, memo file not uploaded)`
+    const data = memo.read(block)
+    if (!data) return `(memo: block ${block} not found)`
+    if (!isText) return `(memo: binary, ${data.length} bytes)`
+    const text = decodeMemoText(decoder, data)
+    return text.length > PREVIEW_MEMO_CHARS ? `${text.slice(0, PREVIEW_MEMO_CHARS)}…` : text
+}
+
+/** Field names plus character-field bytes from the first records: what encoding detection looks at. */
+function textSample(
+    buffer: Buffer,
+    layout: RecordLayout,
+    fields: readonly { nameBytes: Buffer; type: string; length: number; offset: number }[],
+): Buffer {
+    const parts: Buffer[] = fields.map(f => f.nameBytes)
+    const textFields = fields.filter(f => f.type === 'C' || f.type === 'V')
+    let size = 0
+    if (textFields.length > 0) {
+        for (const record of iterateRecords(buffer, layout)) {
+            for (const f of textFields) {
+                const slice = record.subarray(f.offset, f.offset + f.length)
+                parts.push(slice)
+                size += slice.length
+            }
+            if (size >= DETECT_SAMPLE_BYTES) break
+        }
+    }
+    return Buffer.concat(parts)
+}
+
+export function parseDbfNative(filePath: string, previewRows: number): RawDbfParseResult {
+    return parseDbfBuffer(fs.readFileSync(filePath), previewRows)
+}
+
+export function parseDbfBuffer(buffer: Buffer, previewRows: number, memo: MemoReader | null = null): RawDbfParseResult {
     if (buffer.length < HEADER_SIZE) {
         throw new Error(`DBF file too small: ${buffer.length} bytes`)
     }
@@ -136,11 +226,8 @@ export function parseDbfNative(filePath: string, previewRows: number): RawDbfPar
         throw new Error(`Invalid record length: ${recordLength}`)
     }
 
-    const decoder = resolveDecoder(codePage)
-    const nameDecoder = new TextDecoder('latin1')
-
-    // Field descriptors: from byte 32 up to 0x0D
-    const fields: DbfFieldDescriptor[] = []
+    // Field descriptors: from byte 32 up to 0x0D. Names are decoded once the encoding is known.
+    const rawFields: { nameBytes: Buffer; type: DbfFieldTypeCode; length: number; decimalCount: number; offset: number }[] = []
     let cursor = HEADER_SIZE
     // field offset within a record: the first record byte is the deletion flag
     let fieldOffset = 1
@@ -150,58 +237,57 @@ export function parseDbfNative(filePath: string, previewRows: number): RawDbfPar
 
         const nameBytes = buffer.subarray(cursor, cursor + 11)
         const nul = nameBytes.indexOf(0)
-        const name = nameDecoder
-            .decode(nul === -1 ? nameBytes : nameBytes.subarray(0, nul))
-            .trim()
-
-        const type = String.fromCharCode(buffer.readUInt8(cursor + 11)) as DbfFieldTypeCode
         const length = buffer.readUInt8(cursor + 16)
-        const decimalCount = buffer.readUInt8(cursor + 17)
 
-        fields.push({
-            name,
-            type,
+        rawFields.push({
+            nameBytes: nul === -1 ? nameBytes : nameBytes.subarray(0, nul),
+            type: String.fromCharCode(buffer.readUInt8(cursor + 11)) as DbfFieldTypeCode,
             length,
-            decimalCount,
-            offset: fieldOffset as DbfFieldOffset,
+            decimalCount: buffer.readUInt8(cursor + 17),
+            offset: fieldOffset,
         })
 
         fieldOffset += length
         cursor += FIELD_DESCRIPTOR_SIZE
     }
 
+    const layout = { firstRecordOffset, recordLength, recordCount }
+    const encoding = encodingFromCodePage(codePage) ?? detectEncoding(textSample(buffer, layout, rawFields))
+    const decoder = new TextDecoder(encoding)
+
+    const fields: DbfFieldDescriptor[] = rawFields.map(f => ({
+        name: decoder.decode(f.nameBytes).trim(),
+        type: f.type,
+        length: f.length,
+        decimalCount: f.decimalCount,
+        offset: f.offset as DbfFieldOffset,
+    }))
+
     // Read records for the preview
     const preview: string[][] = []
     const rowsToRead = Math.max(0, Math.min(previewRows, recordCount))
 
-    let recordStart = firstRecordOffset
-    let collected = 0
-    let scanned = 0
+    const isVfp = VFP_TYPE_BYTES.has(typeByte)
 
-    while (
-        collected < rowsToRead &&
-        scanned < recordCount &&
-        recordStart + recordLength <= buffer.length
-    ) {
-        const flag = buffer.readUInt8(recordStart)
-        scanned += 1
-
-        // EOF marker or deleted record — skip deleted ones, stop at EOF
-        if (flag === HEADER_TERMINATOR) break
-
-        if (flag !== DELETED_FLAG) {
-            const row = fields.map((field) => {
-                const start = recordStart + (field.offset as number)
-                return decodeField(decoder, buffer.subarray(start, start + field.length))
-            })
-            preview.push(row)
-            collected += 1
+    if (rowsToRead > 0) {
+        for (const record of iterateRecords(buffer, { firstRecordOffset, recordLength, recordCount })) {
+            preview.push(fields.map((field) => {
+                const start = field.offset as number
+                const slice = record.subarray(start, start + field.length)
+                return isMemoField(field.type, isVfp)
+                    ? previewMemo(slice, isTextMemo(field.type), decoder, memo)
+                    : decodeField(decoder, slice)
+            }))
+            if (preview.length >= rowsToRead) break
         }
-
-        recordStart += recordLength
     }
 
+    let liveRecords = 0
+    for (const _ of iterateRecords(buffer, { firstRecordOffset, recordLength, recordCount })) liveRecords++
+
     return {
+        encoding,
+        liveRecords,
         header: {
             typeByte,
             tableFlagsByte,

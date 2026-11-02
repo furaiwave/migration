@@ -1,6 +1,6 @@
 import { Table, TableBody, TableCell, TableHead, TableRow, TableHeader } from "./ui/table";
 import { FieldTypeBadge } from "./FieldTypeBadge";
-import type { DbfFieldDescriptor } from "@/api/api.types";
+import { FIELD_TYPE_LABELS, type DbfFieldDescriptor } from "@/api/api.types";
 
 interface FieldSchemaTableProps {
     readonly fields: readonly DbfFieldDescriptor[]
@@ -8,30 +8,30 @@ interface FieldSchemaTableProps {
 
 export function FieldSchemaTable({ fields }: FieldSchemaTableProps){
     return (
-        <Table>
+        <Table containerClassName="max-h-[60vh]">
             <TableHeader>
                 <TableRow>
-                    <TableHead className="w-10 text-right">#</TableHead>
-                    <TableHead>Head</TableHead>
-                    <TableHead className="w-20">Type</TableHead>
-                    <TableHead className="w-20 text-right">Length</TableHead>
-                    <TableHead className="w-20 text-right">Decimals</TableHead>
-                    <TableHead className="w-20 text-right">Offset</TableHead>
+                    <TableHead className="w-12 text-right">#</TableHead>
+                    <TableHead>Field name</TableHead>
+                    <TableHead className="w-16">Code</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="w-24 text-right">Length</TableHead>
+                    <TableHead className="w-24 text-right">Decimals</TableHead>
+                    <TableHead className="w-24 text-right">Offset</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
                 {fields.map((f, i) => (
                     <TableRow key={`${f.name}-${f.offset}`}>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">{i + 1}</TableCell>
-                        <TableCell className="font-mono font-medium">{f.name}</TableCell>
-                        <TableBody><FieldTypeBadge type={f.type} showLabel/></TableBody>
-                        <TableCell className="text-right font-mono tabular-nums">{f.length}</TableCell>
-                        <TableCell className="text-rigth font-mono tabular-nums text-muted-foreground">
-                            {f.type === 'N' || f.type === 'F' ? f.decimalCount: '-'}
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{i + 1}</TableCell>
+                        <TableCell className="font-medium">{f.name}</TableCell>
+                        <TableCell><FieldTypeBadge type={f.type} /></TableCell>
+                        <TableCell>{FIELD_TYPE_LABELS[f.type]}</TableCell>
+                        <TableCell className="text-right tabular-nums">{f.length}</TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                            {f.type === 'N' || f.type === 'F' ? f.decimalCount : '—'}
                         </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums text-muted-foreground">
-                            {f.offset}
-                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">{f.offset}</TableCell>
                     </TableRow>
                 ))}
             </TableBody>

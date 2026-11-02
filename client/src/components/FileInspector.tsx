@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { HeaderInspector } from './HeaderInspector';
 import { FieldSchemaTable } from './FieldSchemaTable';
@@ -17,18 +16,18 @@ export function FileInspector({ file }: FileInspectorProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <HeaderInspector header={file.header} encoding={file.encoding} />
+      <HeaderInspector header={file.header} encoding={file.encoding} memoFile={file.memoFile} liveRecords={file.totalRecords} />
 
-      <Card className="border-border/60">
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="font-mono text-sm">
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">
             {view === 'schema' ? 'Field schema' : 'Record preview'}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
               {view === 'schema'
                 ? `${file.header.fields.length} fields`
                 : `${file.preview.length} of ${file.totalRecords.toLocaleString()} records`}
             </span>
-          </CardTitle>
+          </h3>
           <div className="flex gap-1">
             <Button
               variant={view === 'schema' ? 'secondary' : 'ghost'}
@@ -45,15 +44,13 @@ export function FileInspector({ file }: FileInspectorProps) {
               Data
             </Button>
           </div>
-        </CardHeader>
-        <CardContent>
-          {view === 'schema' ? (
-            <FieldSchemaTable fields={file.header.fields} />
-          ) : (
-            <RecordPreviewTable fieldNames={file.fieldsNames} rows={file.preview} />
-          )}
-        </CardContent>
-      </Card>
+        </div>
+        {view === 'schema' ? (
+          <FieldSchemaTable fields={file.header.fields} />
+        ) : (
+          <RecordPreviewTable fields={file.header.fields} rows={file.preview} />
+        )}
+      </section>
     </div>
   );
 }

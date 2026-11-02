@@ -8,5 +8,9 @@ export interface DbfParseResult<
 > {
     readonly header: DbfHeader<TTypeByte, TFields>
     readonly preview: ReadonlyArray<Readonly<Record<string, string>>>
+    /** Live records, deleted ones excluded (header.recordCount counts them too). */
     readonly totalRecords: number
+    readonly encoding: string
+    /** Uploaded .fpt/.dbt that holds this table's memo contents. */
+    readonly memoFile: string | null
 }

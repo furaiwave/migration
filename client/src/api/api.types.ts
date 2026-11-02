@@ -13,7 +13,7 @@ export type DbfFieldTypeCode =
 export const FIELD_TYPE_LABELS = {
     C: 'Character', N: 'Numeric', F: 'Float', D: 'Date',
     T: 'DateTime', L: 'Logical', M: 'Memo', B: 'Double',
-    G: 'General', P: 'Picture', Y: 'Currency', I: 'Interger',
+    G: 'General', P: 'Picture', Y: 'Currency', I: 'Integer',
     V: 'Varchar', Q: 'Varbinary', '+': 'Autoinc'
 } as const satisfies Record<DbfFieldTypeCode, string>
 
@@ -70,6 +70,8 @@ export interface DbfFilePreview {
     readonly preview: ReadonlyArray<Readonly<Record<string, string>>>
     readonly totalRecords: number
     readonly encoding: string
+    /** Uploaded .fpt/.dbt that holds this table's memo contents. */
+    readonly memoFile: string | null
 }
 
 export type RelationshipConfidence = 'certain' | 'high' | 'medium' | 'low'
@@ -132,4 +134,83 @@ export interface AddManualRelationshipInput {
     readonly targetFile: string
     readonly targetField: string
     readonly label?: string
+}
+
+export interface MysqlExportOptions {
+    /** Database to create and USE; empty → the dump targets the current database. */
+    readonly database?: string
+    /** TextDecoder label, or 'auto' to follow each file's code page mark. */
+    readonly encoding: string
+    readonly includeData: boolean
+    readonly foreignKeys: boolean
+    readonly dropExisting: boolean
+    readonly emptyStringsAsNull: boolean
+}
+
+export type MysqlColumnKey = 'PRI' | 'UNI' | null
+
+export interface MysqlColumnPlan {
+    readonly dbfField: string
+    readonly dbfType: DbfFieldTypeCode
+    readonly length: number
+    readonly decimals: number
+    readonly column: string
+    readonly mysqlType: string
+    readonly nullable: boolean
+    readonly key: MysqlColumnKey
+    readonly note?: string
+}
+
+export interface MysqlTablePlan {
+    readonly fileName: string
+    readonly table: string
+    readonly rowCount: number
+    readonly encoding: string
+    readonly memoFile: string | null
+    readonly columns: readonly MysqlColumnPlan[]
+    readonly skippedFields: readonly string[]
+}
+
+export interface MysqlForeignKeyPlan {
+    readonly name: string
+    readonly childTable: string
+    readonly childColumn: string
+    readonly parentTable: string
+    readonly parentColumn: string
+    readonly source: RelationshipKind
+    readonly status: 'create' | 'skip'
+    readonly reason?: string
+}
+
+export interface MysqlExportPlan {
+    readonly database: string | null
+    readonly tables: readonly MysqlTablePlan[]
+    readonly foreignKeys: readonly MysqlForeignKeyPlan[]
+    readonly warnings: readonly string[]
+}
+
+export interface MysqlConnectionInput {
+    readonly host: string
+    readonly port: number
+    readonly user: string
+    readonly password: string
+}
+
+export interface MysqlConnectionInfo {
+    readonly serverVersion: string
+    readonly databases: readonly string[]
+}
+
+export interface MysqlImportResult {
+    readonly database: string
+    readonly serverVersion: string
+    readonly durationMs: number
+    readonly tables: readonly {
+        readonly fileName: string
+        readonly table: string
+        readonly expectedRows: number
+        readonly importedRows: number
+    }[]
+    readonly foreignKeysCreated: number
+    readonly warnings: readonly string[]
 }

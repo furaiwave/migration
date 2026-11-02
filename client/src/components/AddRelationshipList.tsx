@@ -48,7 +48,7 @@ export function AddRelationshipForm({
             sourceFile: source.file,
             sourceField: source.field,
             targetFile: target.file,
-            targetField: source.field
+            targetField: target.field
         })
         setSource(EMPTY)
         setTarget(EMPTY)
@@ -92,7 +92,7 @@ export function AddRelationshipForm({
     )
 
     return(
-        <div className="flex flex-col gap-3 rounded-md border border-border/50 bg-card/30 p-4">
+        <div className="flex flex-col gap-3 border p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 {renderPoint('Source', source, setSource)}
                 <span className="hidden pb-2.5 text-muted-foreground sm:block">→</span>

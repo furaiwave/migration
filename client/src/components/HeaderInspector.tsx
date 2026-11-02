@@ -1,63 +1,56 @@
-import { Card } from "./ui/card";
-import { Badge } from "./ui/badge";
-import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import type { DbfHeader } from "@/api/api.types";
-
-function Stat({
-    label,
-    value,
-    mono = true,
-} : {
-    label: string
-    value: string | number
-    mono?: boolean
-}) {
-    return (
-        <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-            <span className={cn('text-sm text-foreground', mono && 'font-mono tabular-nums')}>{value}</span>
-        </div>
-    )
-}
 
 const hex = (n: number): string => `0x${n.toString(16).toUpperCase().padStart(2, '0')}`
 
-interface HeaderInspectorProps {
-    readonly header: DbfHeader
-    readonly encoding: string
+function formatLastUpdate({ year, month, day }: DbfHeader['lastUpdate']): string {
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-export function HeaderInspector({ header, encoding}: HeaderInspectorProps){
-    const { lastUpdate, tableFlags } = header
-    const updated = `${2000 + (lastUpdate.year % 100)} - ${String(lastUpdate.month).padStart(2, '0')}-${String(lastUpdate.day).padStart(2, '0')}`
+function flagsOf(header: DbfHeader): string {
+    const flags: string[] = []
+    if(header.hasMemo) flags.push('memo')
+    if(header.tableFlags.hasStructuralCdx) flags.push('.cdx index')
+    if(header.tableFlags.isDatabase) flags.push('.dbc database')
+    return flags.length > 0 ? flags.join(', ') : '—'
+}
+
+interface HeaderInspectorProps {
+    readonly header: DbfHeader
+    readonly encoding?: string
+    readonly memoFile?: string | null
+    /** Records not marked deleted. */
+    readonly liveRecords: number
+}
+
+export function HeaderInspector({ header, encoding, memoFile, liveRecords }: HeaderInspectorProps){
+    const columns: ReadonlyArray<readonly [label: string, value: string]> = [
+        ['Format', header.typeName],
+        ['Type byte', hex(header.typeByte)],
+        ['Records', liveRecords.toLocaleString()],
+        ['Deleted', (header.recordCount - liveRecords).toLocaleString()],
+        ['Fields', String(header.fields.length)],
+        ['Record length', `${header.recordLength} B`],
+        ['Data offset', `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
+        ['Last update', formatLastUpdate(header.lastUpdate)],
+        ['Code page', hex(header.codePage)],
+        ['Encoding', encoding ?? '—'],
+        ['Flags', flagsOf(header)],
+        ['Memo file', memoFile ?? '—'],
+    ]
 
     return(
-        <Card className="border-border/60 bg-card/40 p-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-6">
-                <Stat label="Type byte" value={hex(header.typeByte)} />
-                <Stat label="Format" value={header.typeName} mono={false} />
-                <Stat label="Records" value={header.recordCount.toLocaleString()} />
-                <Stat label="Rocord length" value={`${header.recordLength} B`} />
-                <Stat label="Data offset" value={hex(header.firstRecordOffset)} />
-                <Stat label="Last update" value={updated} />
-                <Stat label="Code page" value={hex(header.codePage)} />
-                <Stat label="Encoding" value={encoding} mono={false} />
-                <Stat label="Fields" value={header.fields.length} />
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2 border-2 border-t border-border/40 pt-3">
-                {header.hasMemo && (
-                    <Badge variant="outline" className="border-rose-500/30 text-rose-300">Memo</Badge>
-                )}
-                {tableFlags.hasStructuralCdx && (
-                    <Badge variant="outline" className="border-sky-500/30 text-sky-300">.cdx index</Badge> 
-                )}
-                {tableFlags.isDatabase && (
-                    <Badge variant="outline" className="border-amber-500/30 text-amber-300">.dbc database</Badge>
-                )}
-                {!header.hasMemo && !tableFlags.hasStructuralCdx && !tableFlags.isDatabase && (
-                    <span className="text-xs text-muted-foreground">No structural flags set</span>
-                )}
-            </div>
-        </Card>
+        <Table>
+            <TableHeader>
+                <TableRow>
+                    {columns.map(([label]) => <TableHead key={label}>{label}</TableHead>)}
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                <TableRow>
+                    {columns.map(([label, value]) => <TableCell key={label} className="tabular-nums">{value}</TableCell>)}
+                </TableRow>
+            </TableBody>
+        </Table>
     )
 }

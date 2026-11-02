@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { transliterate } from "../translit";
 import type { ParsedFileMap } from "../types/dbf-session.types";
 import type { DbfRelationship, AutoNameRelationship, AutoFkRelationship, DbfRelationshipGraph, FileName } from "../types/dbf-relationship.types";
 
@@ -13,8 +14,9 @@ function extractFkTarget(fieldName: string): string | null {
     return null
 }
 
+// ТАБ_НОМ and TAB_NOM name the same thing: compare transliterated, without separators.
 function normalizeName(s: string): string {
-    return s.toUpperCase().replace(/[_\s-]/g, '')
+    return transliterate(s).replace(/[_\s-]/g, '')
 }
 
 function relKey(r: {
@@ -22,6 +24,10 @@ function relKey(r: {
     targetFile: string, targetField: string
 }): string {
     return `${r.sourceFile}::${r.sourceField}::${r.targetFile}::${r.targetField}`
+}
+
+function reversed<T extends { sourceFile: string, sourceField: string, targetFile: string, targetField: string }>(r: T): T {
+    return { ...r, sourceFile: r.targetFile, sourceField: r.targetField, targetFile: r.sourceFile, targetField: r.sourceField }
 }
 
 @Injectable()
@@ -69,7 +75,8 @@ export class DbfRelationshipService {
         for(const[fileName] of entries){
             const base = fileName.replace(/\.dbf$/i, '').toUpperCase()
             lookup.set(base, fileName)
-            if(base.endsWith('S')) lookup.set(base.slice(0, -1), fileName)
+            // Plurals: CLIENTS → CLIENT, ОТДЕЛЫ → ОТДЕЛ, СОТРУДНИКИ → СОТРУДНИК
+            if(/[SЫИ]$/.test(base)) lookup.set(base.slice(0, -1), fileName)
         }
 
         for(const[sourceFile, result] of entries){
@@ -83,15 +90,20 @@ export class DbfRelationshipService {
                 const targetResult = files.get(targetFile)
                 if(!targetResult) continue
 
-                const targetField = targetResult.header.fields.find(f => f.name === 'ID' || f.name === 'CODE' || f.name === 'KEY')
+                // CLIENT_ID points at CLIENTS.CLIENT_ID when that exists, otherwise at CLIENTS.ID / CODE / KEY.
+                const sameName = targetResult.header.fields.find(f => f.name === field.name)
+                const generic = targetResult.header.fields.find(f => f.name === 'ID' || f.name === 'CODE' || f.name === 'KEY')
+                const targetField = sameName ?? generic
+                // No candidate column: claiming a link to a field that does not exist only misleads.
+                if(!targetField) continue
 
                 results.push({
                     kind: 'auto_fk',
-                    confidence: targetField?.name === 'ID' ? 'high' : 'medium',
+                    confidence: targetField === sameName || targetField.name === 'ID' ? 'high' : 'medium',
                     sourceFile,
                     sourceField: field.name,
                     targetFile,
-                    targetField: targetField?.name ?? 'ID',
+                    targetField: targetField.name,
                     inferredFrom: field.name
                 })
             }
@@ -104,7 +116,8 @@ export class DbfRelationshipService {
         autoName: AutoNameRelationship[],
         autoFk: AutoFkRelationship[],
     ): DbfRelationship[] {
-        const fkKeys = new Set(autoFk.map(relKey))
+        // A name match is the same link as a suffix-inferred key in either direction; keep the key, it has the direction.
+        const fkKeys = new Set(autoFk.flatMap(r => [relKey(r), relKey(reversed(r))]))
         const filtered = autoName.filter(r => !fkKeys.has(relKey(r)))
         return [...filtered, ...autoFk]
     }
@@ -113,15 +126,14 @@ export class DbfRelationshipService {
         files: ParsedFileMap,
         manualRels: readonly DbfRelationship[] = []
     ): DbfRelationshipGraph {
-        const autoName = this.detectByname(files)
         const autoFk = this.detectByFkSuffix(files)
-        const auto = this.dudeplicate(autoName, autoFk)
+        const auto = this.dudeplicate(this.detectByname(files), autoFk)
         const relationships: readonly DbfRelationship[] = [...auto, ...manualRels]
 
         return {
             relationships,
             stats: {
-                autoName: autoName.length,
+                autoName: auto.filter(r => r.kind === 'auto_name').length,
                 autoFk: autoFk.length,
                 manual: manualRels.length,
                 total: relationships.length

@@ -8,11 +8,11 @@ import {
 } from '@/api/api.types'
 
 const CATEGORY_STYLES: Record<FieldCategory, string> = {
-    text: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
-    number: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
-    temporal: 'border-voilet-500/30 bg-violet-500/10 text-violet-300',
-    boolean: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-    blob: 'border-rose-500/30 bg-rose-500/10 text-rose-300',  
+    text: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+    number: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    temporal: 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+    boolean: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    blob: 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300',
 }
 
 interface FieldTypeBadgeProps {
