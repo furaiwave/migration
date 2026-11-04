@@ -13,6 +13,8 @@
  * The DBF record stores the starting block number: 10 ASCII digits, or uint32 LE in 4-byte fields.
  */
 
+import type { TextDecoderLike } from './codepages'
+
 export type MemoFormat = 'fpt' | 'dbt'
 
 export interface MemoReader {
@@ -75,7 +77,7 @@ export function memoBlockOf(slice: Buffer): number {
 }
 
 /** Memo text without the padding FoxPro/dBASE leave at the end. */
-export function decodeMemoText(decoder: TextDecoder, data: Buffer): string {
+export function decodeMemoText(decoder: TextDecoderLike, data: Buffer): string {
     return decoder.decode(data).replace(/[\0\x1a]+$/, '').trimEnd()
 }
 

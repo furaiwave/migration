@@ -22,9 +22,13 @@ export function FieldSchemaTable({ fields }: FieldSchemaTableProps){
             </TableHeader>
             <TableBody>
                 {fields.map((f, i) => (
-                    <TableRow key={`${f.name}-${f.offset}`}>
+                    <TableRow key={`${f.name}-${f.offset}`} className={f.system ? 'text-muted-foreground' : undefined}>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{i + 1}</TableCell>
-                        <TableCell className="font-medium">{f.name}</TableCell>
+                        <TableCell className="font-medium">
+                            {f.name}
+                            {f.system && <span className="ml-2 text-xs font-normal">system field, not exported</span>}
+                            {f.nullable && <span className="ml-2 text-xs font-normal text-sky-700 dark:text-sky-300">NULL allowed</span>}
+                        </TableCell>
                         <TableCell><FieldTypeBadge type={f.type} /></TableCell>
                         <TableCell>{FIELD_TYPE_LABELS[f.type]}</TableCell>
                         <TableCell className="text-right tabular-nums">{f.length}</TableCell>

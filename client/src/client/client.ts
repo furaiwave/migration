@@ -6,14 +6,19 @@ import type {
     MysqlExportPlan,
     MysqlConnectionInput,
     MysqlConnectionInfo,
-    MysqlImportResult,
+    MysqlImportStatus,
+    DbfFilePreview,
 } from "@/api/api.types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3000'
 
 export interface ApiRoutes {
     'POST /dbf/parse-multiple': {
         body: FormData
+        response: ParseMultipleResult
+    }
+    'GET /dbf/session/:id': {
+        body: never
         response: ParseMultipleResult
     }
     'GET /dbf/session/:id/graph': {
@@ -34,11 +39,32 @@ export interface ApiRoutes {
     }
     'POST /dbf/session/:id/mysql/import': {
         body: MysqlExportOptions & MysqlConnectionInput
-        response: MysqlImportResult
+        response: MysqlImportStatus
+    }
+    'GET /dbf/mysql/import/:jobId': {
+        body: never
+        response: MysqlImportStatus
+    }
+    'DELETE /dbf/mysql/import/:jobId': {
+        body: never
+        response: MysqlImportStatus
+    }
+    'PATCH /dbf/session/:id/file/:fileName/encoding': {
+        /** null = back to the code page mark / detection. */
+        body: { readonly encoding: string | null }
+        response: { readonly file: DbfFilePreview; readonly graph: DbfRelationshipGraph }
     }
     'POST /dbf/mysql/test-connection': {
         body: MysqlConnectionInput
         response: MysqlConnectionInfo
+    }
+    'PATCH /dbf/session/:id/relationship/:relId': {
+        body: { readonly disabled: boolean }
+        response: DbfRelationshipGraph
+    }
+    'DELETE /dbf/session/:id/relationship/:relId': {
+        body: never
+        response: DbfRelationshipGraph
     }
     'DELETE /dbf/session/:id': {
         body: never
@@ -62,8 +88,8 @@ export type ParamsOf<R extends ApiRoute> = PathParam<Path<R>>
 
 export class ApiError extends Error {
     constructor(
-        readonly status: number, 
-        readonly statusText: string, 
+        readonly status: number,
+        readonly statusText: string,
         readonly body: unknown,
     ){
         super(`API ${status} ${statusText}`)

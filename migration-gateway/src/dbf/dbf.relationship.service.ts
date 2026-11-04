@@ -1,7 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { transliterate } from "../translit";
 import type { ParsedFileMap } from "../types/dbf-session.types";
-import type { DbfRelationship, AutoNameRelationship, AutoFkRelationship, DbfRelationshipGraph, FileName } from "../types/dbf-relationship.types";
+import type { DbfRelationship, AutoNameRelationship, AutoFkRelationship, DbfRelationshipGraph, FileName, GraphRelationship } from "../types/dbf-relationship.types";
+import { relationshipId } from "../types/dbf-relationship.types";
+import type { DbfFieldDescriptor } from "../types/dbf-field.types";
 
 const FK_SUFFIXES = ['_ID', '_CODE', '_KEY', 'ID', 'KEY'] as const
 
@@ -13,6 +15,10 @@ function extractFkTarget(fieldName: string): string | null {
     }
     return null
 }
+
+// Memo, picture and system fields (_NullFlags) never hold keys; two NOTES fields are not a link.
+const UNLINKABLE_TYPES: ReadonlySet<string> = new Set(['M', 'G', 'P', '0'])
+const linkable = (field: DbfFieldDescriptor): boolean => !field.system && !UNLINKABLE_TYPES.has(field.type)
 
 // ТАБ_НОМ and TAB_NOM name the same thing: compare transliterated, without separators.
 function normalizeName(s: string): string {
@@ -26,6 +32,12 @@ function relKey(r: {
     return `${r.sourceFile}::${r.sourceField}::${r.targetFile}::${r.targetField}`
 }
 
+/**
+ * A field shared by this many tables or more (PRIM, SUMMA, DATE_IZM…) says nothing about how they relate;
+ * linking every pair would produce n·(n−1)/2 links. Real keys like CLIENT_ID are still found by suffix.
+ */
+const MAX_TABLES_PER_NAME_MATCH = 4
+
 function reversed<T extends { sourceFile: string, sourceField: string, targetFile: string, targetField: string }>(r: T): T {
     return { ...r, sourceFile: r.targetFile, sourceField: r.targetField, targetFile: r.sourceFile, targetField: r.sourceField }
 }
@@ -36,13 +48,23 @@ export class DbfRelationshipService {
         const results: AutoNameRelationship[] = []
         const entries = [...files.entries()]
 
+        // How many tables carry each (normalized name, type); too common names are not matched at all.
+        const spread = new Map<string, number>()
+        for(const [, result] of entries){
+            for(const key of new Set(result.header.fields.map(f => `${normalizeName(f.name)}:${f.type}`)))
+                spread.set(key, (spread.get(key) ?? 0) + 1)
+        }
+        const tooCommon = (name: string, type: string) => (spread.get(`${normalizeName(name)}:${type}`) ?? 0) > MAX_TABLES_PER_NAME_MATCH
+
         for(let i = 0; i < entries.length; i++){
             for(let j = i + 1; j < entries.length; j++){
                 const[fileA, resultA] = entries[i]!
                 const[fileB, resultB] = entries[j]!
 
                 for(const fa of resultA.header.fields){
+                    if(!linkable(fa) || tooCommon(fa.name, fa.type)) continue
                     for(const fb of resultB.header.fields){
+                        if(!linkable(fb)) continue
                         if(fa.name === fb.name && fa.type === fb.type){
                             results.push({
                                 kind: 'auto_name', confidence: 'certain',
@@ -52,7 +74,7 @@ export class DbfRelationshipService {
                             })
                         } else if (
                             normalizeName(fa.name) === normalizeName(fb.name) && fa.type === fb.type
-                        ) { 
+                        ) {
                             results.push({
                                 kind: 'auto_name', confidence: 'high',
                                 sourceFile: fileA, sourceField: fa.name,
@@ -81,6 +103,7 @@ export class DbfRelationshipService {
 
         for(const[sourceFile, result] of entries){
             for(const field of result.header.fields){
+                if(!linkable(field)) continue
                 const targetName = extractFkTarget(field.name)
                 if(!targetName) continue
 
@@ -124,11 +147,15 @@ export class DbfRelationshipService {
 
     buildGraph(
         files: ParsedFileMap,
-        manualRels: readonly DbfRelationship[] = []
+        manualRels: readonly DbfRelationship[] = [],
+        disabled: ReadonlySet<string> = new Set(),
     ): DbfRelationshipGraph {
         const autoFk = this.detectByFkSuffix(files)
         const auto = this.dudeplicate(this.detectByname(files), autoFk)
-        const relationships: readonly DbfRelationship[] = [...auto, ...manualRels]
+        const relationships: readonly GraphRelationship[] = [...auto, ...manualRels].map(r => {
+            const id = relationshipId(r)
+            return { ...r, id, disabled: disabled.has(id) }
+        })
 
         return {
             relationships,
@@ -136,7 +163,8 @@ export class DbfRelationshipService {
                 autoName: auto.filter(r => r.kind === 'auto_name').length,
                 autoFk: autoFk.length,
                 manual: manualRels.length,
-                total: relationships.length
+                total: relationships.length,
+                disabled: relationships.filter(r => r.disabled).length,
             }
         }
     }

@@ -4,7 +4,7 @@ import type {
     MysqlConnectionInput,
     MysqlExportOptions,
     MysqlExportPlan,
-    MysqlImportResult,
+    MysqlImportStatus,
 } from "@/api/api.types";
 import { useApiMutation } from "./useApiMutation";
 
@@ -50,7 +50,8 @@ async function testConnection(connection: MysqlConnectionInput): Promise<MysqlCo
     return apiRequest('POST /dbf/mysql/test-connection', { body: connection })
 }
 
-async function importIntoMysql(input: MysqlImportInput): Promise<MysqlImportResult> {
+/** Starts the import; it runs on the server and is followed with fetchImportStatus. */
+async function importIntoMysql(input: MysqlImportInput): Promise<MysqlImportStatus> {
     return apiRequest('POST /dbf/session/:id/mysql/import', {
         params: { id: input.sessionId },
         body: { ...requestOptions(input.options), ...input.connection },
@@ -62,5 +63,13 @@ export function useMysqlTestConnection() {
 }
 
 export function useMysqlImport() {
-    return useApiMutation<MysqlImportInput, MysqlImportResult, ApiError>(importIntoMysql)
+    return useApiMutation<MysqlImportInput, MysqlImportStatus, ApiError>(importIntoMysql)
+}
+
+export function fetchImportStatus(jobId: string): Promise<MysqlImportStatus> {
+    return apiRequest('GET /dbf/mysql/import/:jobId', { params: { jobId } })
+}
+
+export function cancelImport(jobId: string): Promise<MysqlImportStatus> {
+    return apiRequest('DELETE /dbf/mysql/import/:jobId', { params: { jobId } })
 }

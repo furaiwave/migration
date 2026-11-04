@@ -1,44 +1,53 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
-import { FieldTypeBadge } from "./FieldTypeBadge";
+import { MysqlPlanTables } from "./MysqlPlanTables";
 import { MysqlImportForm } from "./MysqlImportForm";
 import { useMysqlDump, useMysqlPlan } from "@/hooks/useMysqlExport";
 import { errorMessage } from "@/lib/errors";
-import { cn } from "@/lib/utils";
-import type { DbfRelationshipGraph, MysqlColumnPlan, MysqlExportOptions, MysqlExportPlan } from "@/api/api.types";
-
-const ENCODINGS = [
-    { value: 'auto', label: 'Auto (from code page)' },
-    { value: 'cp866', label: 'cp866 — DOS Cyrillic' },
-    { value: 'windows-1251', label: 'windows-1251 — Windows Cyrillic' },
-    { value: 'koi8-r', label: 'koi8-r' },
-    { value: 'utf-8', label: 'utf-8' },
-    { value: 'windows-1252', label: 'windows-1252 — Western' },
-    { value: 'latin1', label: 'latin1' },
-] as const
+import type {
+    DbfRelationshipGraph,
+    MysqlColumnOverride,
+    MysqlExportOptions,
+    MysqlExportPlan,
+    MysqlPlanOverrides,
+    MysqlTableOverride,
+    MysqlWriteMode,
+} from "@/api/api.types";
 
 const DEFAULT_OPTIONS: MysqlExportOptions = {
     database: '',
-    encoding: 'auto',
     includeData: true,
     foreignKeys: true,
-    dropExisting: true,
+    writeMode: 'replace',
+    syncDeletes: false,
+    keepDeleted: false,
+    indexes: true,
     emptyStringsAsNull: true,
+    overrides: {},
 }
 
-type Toggle = 'includeData' | 'foreignKeys' | 'dropExisting' | 'emptyStringsAsNull'
+type Toggle = 'includeData' | 'foreignKeys' | 'indexes' | 'keepDeleted' | 'emptyStringsAsNull'
 
-const TOGGLES: ReadonlyArray<{ key: Toggle; label: string }> = [
+const TOGGLES: ReadonlyArray<{ key: Toggle; label: string; title?: string }> = [
     { key: 'includeData', label: 'Include data (INSERT)' },
     { key: 'foreignKeys', label: 'Create foreign keys' },
-    { key: 'dropExisting', label: 'Drop existing tables' },
+    { key: 'indexes', label: 'Create indexes from .CDX' },
+    { key: 'keepDeleted', label: 'Keep deleted records in <table>_deleted', title: 'Records marked deleted (*) in the DBF are otherwise left out' },
     { key: 'emptyStringsAsNull', label: "Blank text → NULL instead of ''" },
+]
+
+const WRITE_MODES: ReadonlyArray<{ value: MysqlWriteMode; label: string; hint: string }> = [
+    { value: 'replace', label: 'Replace tables', hint: 'Existing tables with the same names are dropped and created again.' },
+    { value: 'append', label: 'Append rows', hint: 'Missing tables are created; rows are added to existing ones (fails on rows that are already there).' },
+    {
+        value: 'sync',
+        label: 'Sync (new and changed rows)',
+        hint: 'Run it again while the old system is still in use: new rows are inserted and changed ones updated by primary key, the rest is left alone. Tables without a primary key are reloaded.',
+    },
 ]
 
 const DATABASE_PATTERN = /^[A-Za-z0-9_]{0,64}$/
@@ -53,16 +62,39 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
     const [options, setOptions] = useState<MysqlExportOptions>(DEFAULT_OPTIONS)
     const { mutate: loadPlan, state: planState } = useMysqlPlan()
     const dump = useMysqlDump()
+    // The last plan stays on screen while the next one is built, so editing does not make the tables jump.
+    const [plan, setPlan] = useState<MysqlExportPlan | null>(null)
 
-    // Only these settings change the plan; the database name and data toggles affect the file alone.
-    const { encoding, foreignKeys, emptyStringsAsNull } = options
+    // Everything but the database name and "delete gone rows" changes the plan or its data check.
+    const { foreignKeys, emptyStringsAsNull, includeData, overrides, writeMode, keepDeleted, indexes } = options
     useEffect(() => {
-        loadPlan({ sessionId, options: { ...DEFAULT_OPTIONS, encoding, foreignKeys, emptyStringsAsNull } })
+        let current = true
+        loadPlan({ sessionId, options: { ...DEFAULT_OPTIONS, foreignKeys, emptyStringsAsNull, includeData, overrides, writeMode, keepDeleted, indexes } })
+            .then((p) => { if (current) setPlan(p) })
             .catch(() => { /* surfaced via planState */ })
-    }, [sessionId, graph, encoding, foreignKeys, emptyStringsAsNull, loadPlan])
+        return () => { current = false }
+    }, [sessionId, graph, foreignKeys, emptyStringsAsNull, includeData, overrides, writeMode, keepDeleted, indexes, loadPlan])
+
+    const setOverrides = (update: (o: MysqlPlanOverrides) => MysqlPlanOverrides) =>
+        setOptions((o) => ({ ...o, overrides: update(o.overrides) }))
+
+    const editTable = (fileName: string, patch: MysqlTableOverride) =>
+        setOverrides((o) => ({ ...o, [fileName]: { ...o[fileName], ...patch } }))
+
+    const editColumn = (fileName: string, dbfField: string, patch: MysqlColumnOverride) =>
+        setOverrides((o) => {
+            const table = o[fileName] ?? {}
+            const next: MysqlTableOverride = {
+                ...table,
+                columns: { ...table.columns, [dbfField]: { ...table.columns?.[dbfField], ...patch } },
+                // A field that is no longer exported cannot stay the primary key.
+                ...(patch.exclude && table.primaryKey === dbfField ? { primaryKey: undefined } : {}),
+            }
+            return { ...o, [fileName]: next }
+        })
 
     const databaseValid = DATABASE_PATTERN.test(options.database ?? '')
-    const plan = planState.status === 'success' ? planState.data : null
+    const blockingIssues = plan?.quality.filter((q) => q.effect === 'fail').length ?? 0
     const fileName = `${options.database || 'dbf_export'}.sql`
 
     const download = () => {
@@ -92,23 +124,23 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground">Text encoding</Label>
+                        <Label className="text-xs text-muted-foreground">Existing tables</Label>
                         <Select
-                            items={ENCODINGS}
-                            value={options.encoding}
-                            onValueChange={(value) => setOptions((o) => ({ ...o, encoding: value ?? 'auto' }))}
+                            items={WRITE_MODES.map(({ value, label }) => ({ value, label }))}
+                            value={options.writeMode}
+                            onValueChange={(v) => v && setOptions((o) => ({ ...o, writeMode: v as MysqlWriteMode }))}
                         >
-                            <SelectTrigger className="w-64">
+                            <SelectTrigger className="min-w-60">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {ENCODINGS.map((e) => <SelectItem key={e.value} value={e.value}>{e.label}</SelectItem>)}
+                                {WRITE_MODES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
                     <div className="flex flex-wrap gap-x-5 gap-y-2 pb-2">
-                        {TOGGLES.map(({ key, label }) => (
-                            <label key={key} className="flex cursor-pointer items-center gap-2 text-xs">
+                        {TOGGLES.map(({ key, label, title }) => (
+                            <label key={key} title={title} className="flex cursor-pointer items-center gap-2 text-xs">
                                 <input
                                     type="checkbox"
                                     className="size-3.5 accent-primary"
@@ -124,177 +156,62 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                         Download {fileName}
                     </Button>
                 </div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                    <span>{WRITE_MODES.find((m) => m.value === options.writeMode)?.hint}</span>
+                    {options.writeMode === 'sync' && (
+                        <label className="flex cursor-pointer items-center gap-2 text-foreground">
+                            <input
+                                type="checkbox"
+                                className="size-3.5 accent-primary"
+                                checked={options.syncDeletes}
+                                disabled={!options.includeData}
+                                onChange={(e) => setOptions((o) => ({ ...o, syncDeletes: e.target.checked }))}
+                            />
+                            Also delete MySQL rows that are gone from the DBF (deleted or packed in the old system)
+                        </label>
+                    )}
+                </div>
                 {!databaseValid && (
                     <p className="text-xs text-destructive">Database name: Latin letters, digits and _ only, up to 64 characters.</p>
                 )}
                 {dump.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(dump.state.error)}</p>}
+                {blockingIssues > 0 && (
+                    <p className="text-xs text-destructive">
+                        The file can be downloaded, but MySQL will stop on {blockingIssues} data problem{blockingIssues === 1 ? '' : 's'} listed in Data quality below.
+                    </p>
+                )}
                 <p className="text-xs text-muted-foreground">
                     Import: <code className="bg-muted px-1">mysql --default-character-set=utf8mb4 -u root -p &lt; {fileName}</code>
                     {' '}or in MySQL Workbench: File → Run SQL Script.
                 </p>
             </div>
 
-            <MysqlImportForm sessionId={sessionId} options={options} databaseValid={databaseValid} />
+            <MysqlImportForm sessionId={sessionId} options={options} databaseValid={databaseValid} blockingIssues={blockingIssues} />
 
-            {planState.status === 'error' && <p className="text-sm text-destructive">{errorMessage(planState.error)}</p>}
-            {planState.status === 'pending' && !plan && (
-                <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Building plan…</p>
+            {planState.status === 'error' && (
+                <p className="text-sm text-destructive">
+                    {errorMessage(planState.error)}
+                    {Object.keys(overrides).length > 0 && (
+                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>Reset edits</Button>
+                    )}
+                </p>
             )}
-            {plan && <MysqlPlanTables plan={plan} />}
+            {planState.status === 'pending' && (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-3.5 animate-spin" /> {plan ? 'Updating plan…' : 'Building plan and checking every record…'}
+                </p>
+            )}
+            {plan && (
+                <MysqlPlanTables
+                    plan={plan}
+                    dataChecked={includeData}
+                    overrides={overrides}
+                    onTable={editTable}
+                    onColumn={editColumn}
+                    onReset={() => setOptions((o) => ({ ...o, overrides: {} }))}
+                    syncMode={writeMode === 'sync'}
+                />
+            )}
         </section>
-    )
-}
-
-function ColumnMappingRow({ column: c }: { column: MysqlColumnPlan }) {
-    return (
-        <TableRow>
-            <TableCell className="pl-6">{c.dbfField}</TableCell>
-            <TableCell>
-                <span className="flex items-center gap-2">
-                    <FieldTypeBadge type={c.dbfType} showLabel />
-                    <span className="tabular-nums text-muted-foreground">
-                        ({c.length}{c.decimals > 0 ? `,${c.decimals}` : ''})
-                    </span>
-                </span>
-            </TableCell>
-            <TableCell className="font-medium">{c.column}</TableCell>
-            <TableCell>{c.mysqlType}</TableCell>
-            <TableCell>{c.nullable ? 'YES' : 'NO'}</TableCell>
-            <TableCell>{c.key ?? '—'}</TableCell>
-            <TableCell className="text-muted-foreground">{c.note ?? ''}</TableCell>
-        </TableRow>
-    )
-}
-
-function MysqlPlanTables({ plan }: { plan: MysqlExportPlan }) {
-    const created = plan.foreignKeys.filter((fk) => fk.status === 'create').length
-
-    return (
-        <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold">Tables</h3>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>DBF file</TableHead>
-                            <TableHead>MySQL table</TableHead>
-                            <TableHead className="text-right">Rows</TableHead>
-                            <TableHead className="text-right">Columns</TableHead>
-                            <TableHead>Primary key</TableHead>
-                            <TableHead>Encoding</TableHead>
-                            <TableHead>Memo file</TableHead>
-                            <TableHead>Left out</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {plan.tables.map((t) => (
-                            <TableRow key={t.table}>
-                                <TableCell>{t.fileName}</TableCell>
-                                <TableCell className="font-medium">{t.table}</TableCell>
-                                <TableCell className="text-right tabular-nums">{t.rowCount.toLocaleString()}</TableCell>
-                                <TableCell className="text-right tabular-nums">{t.columns.length}</TableCell>
-                                <TableCell>{t.columns.filter((c) => c.key === 'PRI').map((c) => c.column).join(', ') || '—'}</TableCell>
-                                <TableCell>{t.encoding}</TableCell>
-                                <TableCell>{t.memoFile ?? '—'}</TableCell>
-                                <TableCell className="text-muted-foreground">{t.skippedFields.join(', ') || '—'}</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </div>
-
-            <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold">Column mapping</h3>
-                <Table containerClassName="max-h-[60vh]">
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>DBF field</TableHead>
-                            <TableHead>DBF type</TableHead>
-                            <TableHead>MySQL column</TableHead>
-                            <TableHead>MySQL type</TableHead>
-                            <TableHead>Null</TableHead>
-                            <TableHead>Key</TableHead>
-                            <TableHead>Note</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {plan.tables.map((t) => (
-                            <Fragment key={t.table}>
-                                {/* One group per table: a caption row, then its columns. */}
-                                <TableRow className="bg-muted/40 hover:bg-muted/40">
-                                    <TableCell colSpan={7} className="font-semibold">
-                                        {t.fileName} → {t.table}
-                                        <span className="ml-2 font-normal text-muted-foreground">
-                                            {t.columns.length} columns · {t.rowCount.toLocaleString()} rows
-                                        </span>
-                                    </TableCell>
-                                </TableRow>
-                                {t.columns.map((c) => <ColumnMappingRow key={c.column} column={c} />)}
-                            </Fragment>
-                        ))}
-                    </TableBody>
-                </Table>
-            </div>
-
-            <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold">
-                    Foreign keys
-                    <span className="ml-2 font-normal text-muted-foreground">
-                        {created} will be created, {plan.foreignKeys.length - created} skipped
-                    </span>
-                </h3>
-                {plan.foreignKeys.length === 0 ? (
-                    <div className="flex h-16 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                        No relationships to turn into foreign keys.
-                    </div>
-                ) : (
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Child column</TableHead>
-                                <TableHead className="w-10 text-center">→</TableHead>
-                                <TableHead>Referenced column</TableHead>
-                                <TableHead>Found by</TableHead>
-                                <TableHead>Constraint / reason</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {plan.foreignKeys.map((fk, i) => (
-                                <TableRow key={`${fk.childTable}.${fk.childColumn}-${fk.parentTable}.${fk.parentColumn}-${i}`}>
-                                    <TableCell>
-                                        {fk.status === 'create'
-                                            ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">create</Badge>
-                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">skip</Badge>}
-                                    </TableCell>
-                                    <TableCell>{fk.childTable}.{fk.childColumn}</TableCell>
-                                    <TableCell className="text-center text-muted-foreground">→</TableCell>
-                                    <TableCell>{fk.parentTable}.{fk.parentColumn}</TableCell>
-                                    <TableCell className="text-muted-foreground">{fk.source.replace('_', ' ')}</TableCell>
-                                    <TableCell className={cn('whitespace-normal', fk.status === 'skip' && 'text-muted-foreground')}>
-                                        {fk.status === 'create' ? fk.name : fk.reason}
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                )}
-            </div>
-
-            {plan.warnings.length > 0 && (
-                <div className="flex flex-col gap-2">
-                    <h3 className="text-sm font-semibold">Warnings</h3>
-                    <Table>
-                        <TableBody>
-                            {plan.warnings.map((w) => (
-                                <TableRow key={w}>
-                                    <TableCell className="whitespace-normal text-amber-700 dark:text-amber-300">{w}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            )}
-        </div>
     )
 }
