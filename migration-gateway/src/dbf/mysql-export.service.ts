@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Readable } from 'stream'
-import { binaryFieldText, fieldBytes, isDbase7, iterateRecords, recordNumberOf, type RecordSet } from '../addon'
+import { binaryFieldText, encodingFromCodePage, fieldBytes, isDbase7, iterateRecords, recordNumberOf, type RecordSet } from '../addon'
 import { createDecoder, type TextDecoderLike } from '../codepages'
 import { transliterate } from '../translit'
 import { decodeMemoText, memoBlockOf, openMemo, VFP_TYPE_BYTES, type MemoReader } from '../memo'
@@ -280,6 +280,12 @@ function uniqueName(base: string, taken: Set<string>): string {
 
 const isMemoKind = (kind: ValueKind): boolean => kind === 'memoText' || kind === 'memoBinary'
 
+/** Why the encoding was guessed: no mark, a mark this reader does not know, or a mark the text contradicts. */
+const describeMark = (codePage: number): string =>
+    codePage === 0 ? 'no code page mark'
+        : encodingFromCodePage(codePage) ? `the code page mark says ${encodingFromCodePage(codePage)}, but the text is not`
+            : `unknown code page mark 0x${codePage.toString(16).toUpperCase()}`
+
 const describeField = (f: DbfFieldDescriptor): string =>
     `${f.name} ${f.type}(${f.length}${f.decimalCount > 0 ? `,${f.decimalCount}` : ''})`
 
@@ -374,7 +380,7 @@ function rowBytes(type: string): { declared: number; inRow: number } {
  * VARCHAR(64), which InnoDB may store out of the row; if the declared total is still too large, the
  * widest become TEXT. Types the user set are left alone. Values are never cut.
  */
-function fitRowSize(table: TableSpec, warnings: string[]): void {
+function fitRowSize(table: TableSpec, warnings: string[], indexed: ReadonlySet<ColumnSpec>): void {
     const columns = active(table)
     // Record header, NULL bitmap and InnoDB's hidden row id and transaction columns.
     const overhead = 30 + Math.ceil(columns.length / 8)
@@ -384,7 +390,8 @@ function fitRowSize(table: TableSpec, warnings: string[]): void {
         columns.filter(c => changeable(c) && pick(c)).sort((a, b) => sizedLength(b.mysqlType)! - sizedLength(a.mysqlType)!)[0]
 
     const toText: string[] = []
-    for (let c = widest(c => c.key === null); c && total('declared') > MYSQL_ROW_LIMIT; c = widest(c => c.key === null)) {
+    const textable = (c: ColumnSpec) => c.key === null && !indexed.has(c)
+    for (let c = widest(textable); c && total('declared') > MYSQL_ROW_LIMIT; c = widest(textable)) {
         c.mysqlType = 'TEXT'
         toText.push(c.column)
     }
@@ -660,7 +667,7 @@ export class MysqlExportService {
                 if (!memo && included.some(c => isMemoKind(c.kind)))
                     warnings.push(`${fileName}: memo fields are exported as NULL — upload ${fileName.replace(/\.dbf$/i, '')}.FPT (or .DBT) together with the table to carry them over`)
                 if (result.encodingSource === 'detected' && included.some(c => c.kind === 'text'))
-                    warnings.push(`${fileName}: no code page mark — encoding detected from the text as ${encoding}. If the preview looks wrong, pick the encoding on the table's tab.`)
+                    warnings.push(`${fileName}: ${describeMark(result.header.codePage)} — encoding detected from the text as ${encoding}. If the preview looks wrong, pick the encoding on the table's tab.`)
                 if (options.indexes && result.header.tableFlags.hasStructuralCdx && !result.index)
                     warnings.push(`${fileName}: the table has a .CDX index file — upload ${fileName.replace(/\.dbf$/i, '')}.CDX together with the table to carry its indexes over`)
                 if (options.indexes && result.index?.error)
@@ -704,7 +711,21 @@ export class MysqlExportService {
             : { foreignKeys: [], accepted: [] }
 
         // Types are final now (overrides, keys, foreign key alignment); make sure each row fits InnoDB.
-        for (const t of tables) if (!t.excluded) fitRowSize(t, warnings)
+        // Columns in a foreign key or a .CDX index must stay indexable, so they never become TEXT.
+        const indexed = new Set<ColumnSpec>(accepted.flatMap(a => [a.child.column, a.parent.column]))
+        for (const t of tables) {
+            if (!options.indexes) continue
+            const fieldNames = t.result.header.fields.map(f => f.name)
+            for (const tag of t.result.index?.tags ?? []) {
+                try {
+                    for (const part of indexParts(tag.expression, fieldNames)) {
+                        const column = t.columns.find(c => c.field.name === part.field)
+                        if (column) indexed.add(column)
+                    }
+                } catch { /* an expression that cannot be translated creates no index */ }
+            }
+        }
+        for (const t of tables) if (!t.excluded) fitRowSize(t, warnings, indexed)
 
         if (options.indexes) {
             for (const t of tables) if (!t.excluded) t.indexes = this.planIndexes(t, options)

@@ -220,6 +220,9 @@ function checkOf(t: ResultRow, result: MysqlImportResult): { ok: boolean; text: 
     // A sync that keeps rows deleted in the old system leaves them in MySQL on purpose.
     if (result.writeMode === 'sync' && !result.syncDeletes && t.importedRows > t.expectedRows && !t.sync?.reloaded)
         return { ok: true, text: `+${(t.importedRows - t.expectedRows).toLocaleString()} kept (gone from the DBF)` }
+    // Appending adds to what the table held before.
+    if (result.writeMode === 'append' && t.importedRows > t.expectedRows)
+        return { ok: true, text: `+${(t.importedRows - t.expectedRows).toLocaleString()} were already in the table` }
     return { ok: false, text: 'mismatch' }
 }
 

@@ -144,7 +144,10 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
       {pending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
       <span className="text-muted-foreground">
         {file.encodingSource === 'detected'
-          ? 'The file has no code page mark — check the Data view; if the letters look wrong, pick another encoding.'
+          ? `${file.header.codePage === 0
+              ? 'The file has no code page mark'
+              : `The code page mark (0x${file.header.codePage.toString(16).toUpperCase()}) is unknown or does not match the text`
+            }, so the encoding was guessed — check the Data view; if the letters look wrong, pick another encoding.`
           : 'Field names, the preview and the MySQL export all use this encoding.'}
       </span>
       {error && <span className="text-destructive">{error}</span>}
