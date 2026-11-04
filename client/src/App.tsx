@@ -90,12 +90,12 @@ export default function App() {
             <Database className="size-5 text-primary" />
             <div>
               <h1 className="text-sm font-semibold tracking-tight">dbf inspector</h1>
-              <p className="text-xs text-muted-foreground">Read legacy .dbf tables before migrating to MySQL</p>
+              <p className="text-xs text-muted-foreground">Перегляд старих таблиць .dbf перед перенесенням у MySQL</p>
             </div>
           </div>
           {session && (
             <Button variant="outline" size="sm" onClick={reset}>
-              <RotateCcw /> New session
+              <RotateCcw /> Нова сесія
             </Button>
           )}
         </div>
@@ -104,22 +104,22 @@ export default function App() {
       <main className="flex w-full flex-1 flex-col gap-6 px-6 py-6">
         {restoring && !session ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Reopening your last session…
+            <Loader2 className="size-4 animate-spin" /> Відкриваю останню сесію…
           </p>
         ) : restoreError && !session ? (
           <div className="flex flex-col items-start gap-3 border border-destructive/40 p-4 text-sm">
             <p className="text-destructive">
-              Cannot reach the backend to reopen your last session: {restoreError}
+              Не вдалося відкрити останню сесію: {restoreError}
             </p>
             <p className="text-xs text-muted-foreground">
-              The session is kept on the server for a day. Start the backend (<code className="bg-muted px-1">npm run start:dev</code> in migration-gateway) and try again.
+              Сесія зберігається на сервері добу. Запустіть бекенд (<code className="bg-muted px-1">npm run start:dev</code> у migration-gateway) і спробуйте ще раз.
             </p>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => { setRestoring(true); setRestoreAttempt((n) => n + 1); }}>
-                <RotateCcw /> Try again
+                <RotateCcw /> Спробувати ще раз
               </Button>
               <Button size="sm" variant="outline" onClick={() => { rememberSession(null); setRestoreError(null); }}>
-                Start a new session
+                Почати нову сесію
               </Button>
             </div>
           </div>

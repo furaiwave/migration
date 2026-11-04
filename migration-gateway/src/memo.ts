@@ -14,6 +14,7 @@
  */
 
 import type { TextDecoderLike } from './codepages'
+import { plural } from './plural'
 
 export type MemoFormat = 'fpt' | 'dbt'
 
@@ -34,7 +35,7 @@ export function memoFormatOf(fileName: string): MemoFormat | null {
 }
 
 export function openMemo(buffer: Buffer, format: MemoFormat): MemoReader {
-    if (buffer.length < 512) throw new Error(`Memo file too small: ${buffer.length} bytes`)
+    if (buffer.length < 512) throw new Error(`Memo-файл замалий: ${buffer.length} ${plural(buffer.length, 'байт', 'байти', 'байтів')}`)
     return format === 'fpt' ? openFpt(buffer) : openDbt(buffer)
 }
 

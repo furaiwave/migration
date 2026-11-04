@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { cancelImport, fetchImportStatus, useMysqlImport, useMysqlTestConnection } from "@/hooks/useMysqlExport";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
+import { plural } from "@/lib/plural";
 import type { MysqlConnectionInput, MysqlExportOptions, MysqlImportResult, MysqlImportStatus, MysqlWriteMode } from "@/api/api.types";
 
 const DEFAULT_CONNECTION: MysqlConnectionInput = {
@@ -19,9 +20,9 @@ const DEFAULT_CONNECTION: MysqlConnectionInput = {
 const POLL_MS = 500
 
 const EXISTING_TABLES: Readonly<Record<MysqlWriteMode, string>> = {
-    replace: 'its tables with the same names will be replaced',
-    append: 'rows will be added to its existing tables',
-    sync: 'its tables will get the new and changed rows; the tables are checked against the plan first',
+    replace: 'її таблиці з такими самими назвами буде замінено',
+    append: 'рядки буде додано до її наявних таблиць',
+    sync: 'її таблиці отримають нові та змінені рядки; спершу таблиці звіряються з планом',
 }
 
 interface MysqlImportFormProps {
@@ -81,19 +82,19 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
     return (
         <div className="flex flex-col gap-4 border p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-xs font-semibold">Import directly into MySQL</h3>
+                <h3 className="text-xs font-semibold">Імпорт напряму в MySQL</h3>
                 <p className="text-xs text-muted-foreground">
-                    Runs the same SQL as the file above on your server. Uses the settings above; the database name is required.
+                    Виконує на вашому сервері той самий SQL, що й файл вище. Використовує налаштування вище; назва бази даних обов'язкова.
                 </p>
             </div>
 
             <div className="flex flex-wrap items-end gap-4">
                 <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="mysqlHost" className="text-xs text-muted-foreground">Host</Label>
+                    <Label htmlFor="mysqlHost" className="text-xs text-muted-foreground">Хост</Label>
                     <Input id="mysqlHost" value={connection.host} onChange={(e) => update({ host: e.target.value })} className="w-44" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="mysqlPort" className="text-xs text-muted-foreground">Port</Label>
+                    <Label htmlFor="mysqlPort" className="text-xs text-muted-foreground">Порт</Label>
                     <Input
                         id="mysqlPort"
                         type="number"
@@ -105,11 +106,11 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
                     />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="mysqlUser" className="text-xs text-muted-foreground">User</Label>
+                    <Label htmlFor="mysqlUser" className="text-xs text-muted-foreground">Користувач</Label>
                     <Input id="mysqlUser" value={connection.user} onChange={(e) => update({ user: e.target.value })} className="w-36" autoComplete="username" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="mysqlPassword" className="text-xs text-muted-foreground">Password</Label>
+                    <Label htmlFor="mysqlPassword" className="text-xs text-muted-foreground">Пароль</Label>
                     <Input
                         id="mysqlPassword"
                         type="password"
@@ -121,37 +122,37 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
                 </div>
                 <Button variant="outline" disabled={!canConnect || busy} onClick={onTest}>
                     {test.isPending ? <Loader2 className="animate-spin" /> : <PlugZap />}
-                    Test connection
+                    Перевірити з'єднання
                 </Button>
                 <Button className="ml-auto" disabled={!canConnect || busy || !database || !databaseValid || blockingIssues > 0} onClick={onImport}>
                     {runImport.isPending ? <Loader2 className="animate-spin" /> : <DatabaseZap />}
-                    {database ? `Import into ${database}` : 'Enter a database name above'}
+                    {database ? `Імпортувати в ${database}` : 'Вкажіть назву бази даних вище'}
                 </Button>
             </div>
 
             {blockingIssues > 0 && (
                 <p className="text-xs text-destructive">
-                    Import is locked: {blockingIssues} data problem{blockingIssues === 1 ? '' : 's'} would make MySQL reject rows and leave a half-loaded database. See Data quality below.
+                    Імпорт заблоковано: через проблеми в даних ({blockingIssues}) MySQL відхилить рядки, і база залишиться завантаженою наполовину. Див. «Якість даних» нижче.
                 </p>
             )}
             {test.state.status === 'success' && (
                 <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="size-3.5" />
-                    Connected to MySQL {test.state.data.serverVersion}.
+                    Підключено до MySQL {test.state.data.serverVersion}.
                     {database && (databaseExists
-                        ? ` Database "${database}" exists — ${EXISTING_TABLES[options.writeMode]}.`
-                        : ` Database "${database}" will be created.`)}
+                        ? ` База даних "${database}" існує — ${EXISTING_TABLES[options.writeMode]}.`
+                        : ` Базу даних "${database}" буде створено.`)}
                 </p>
             )}
             {test.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(test.state.error)}</p>}
             {runImport.isPending && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin" /> Checking the data and connecting…
+                    <Loader2 className="size-3.5 animate-spin" /> Перевіряю дані й підключаюся…
                 </p>
             )}
             {runImport.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(runImport.state.error)}</p>}
             {job?.state === 'running' && <ImportProgress job={job} onCancel={onCancel} cancelling={cancelling} />}
-            {pollError && <p className="text-xs text-destructive">Lost track of the import: {pollError} — retrying…</p>}
+            {pollError && <p className="text-xs text-destructive">Втрачено зв'язок з імпортом: {pollError} — пробую ще раз…</p>}
             {(job?.state === 'failed' || job?.state === 'cancelled') && (
                 <p className="text-xs text-destructive">{job.error}</p>
             )}
@@ -162,7 +163,7 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
 
 const formatDuration = (ms: number): string => {
     const s = Math.round(ms / 1000)
-    return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`
+    return s < 60 ? `${s} с` : `${Math.floor(s / 60)} хв ${String(s % 60).padStart(2, '0')} с`
 }
 
 function ProgressBar({ value, max }: { value: number; max: number }) {
@@ -182,31 +183,31 @@ function ImportProgress({ job, onCancel, cancelling }: { job: MysqlImportStatus;
     const remainingMs = rate > 0 && p.rowsTotal > p.rowsDone ? ((p.rowsTotal - p.rowsDone) / rate) * 1000 : null
 
     const stage =
-        p.phase === 'foreign_keys' ? `Adding foreign keys · ${p.foreignKeysDone} of ${p.foreignKeysTotal}`
-        : p.phase === 'verifying' ? 'Counting rows in MySQL to confirm…'
-        : p.tableIndex === 0 ? 'Starting…'
-        : `Table ${p.tableIndex} of ${p.tableCount} · ${p.table}` +
-          (p.tableRows > 0 ? ` · ${p.tableRowsDone.toLocaleString()} / ${p.tableRows.toLocaleString()} rows` : '')
+        p.phase === 'foreign_keys' ? `Додаю зовнішні ключі · ${p.foreignKeysDone} з ${p.foreignKeysTotal}`
+        : p.phase === 'verifying' ? 'Рахую рядки в MySQL для перевірки…'
+        : p.tableIndex === 0 ? 'Починаю…'
+        : `Таблиця ${p.tableIndex} з ${p.tableCount} · ${p.table}` +
+          (p.tableRows > 0 ? ` · ${p.tableRowsDone.toLocaleString()} / ${p.tableRows.toLocaleString()} ${plural(p.tableRows, 'рядка', 'рядків', 'рядків')}` : '')
 
     return (
         <div className="flex flex-col gap-2 border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="flex items-center gap-2 font-medium">
-                    <Loader2 className="size-3.5 animate-spin" /> Importing into "{job.database}" — {stage}
+                    <Loader2 className="size-3.5 animate-spin" /> Імпорт у "{job.database}" — {stage}
                 </span>
                 <Button variant="outline" size="sm" onClick={onCancel} disabled={cancelling}>
-                    <Square /> {cancelling ? 'Stopping…' : 'Stop'}
+                    <Square /> {cancelling ? 'Зупиняю…' : 'Зупинити'}
                 </Button>
             </div>
             <ProgressBar value={done} max={total} />
             {p.phase === 'tables' && p.tableRows > 0 && <ProgressBar value={p.tableRowsDone} max={p.tableRows} />}
             {p.phase === 'foreign_keys' && p.foreignKeysTotal > 0 && <ProgressBar value={p.foreignKeysDone} max={p.foreignKeysTotal} />}
             <p className="text-xs text-muted-foreground tabular-nums">
-                {p.rowsTotal > 0 && `${p.rowsDone.toLocaleString()} / ${p.rowsTotal.toLocaleString()} rows in total · `}
-                {formatDuration(p.elapsedMs)} elapsed
-                {rate > 0 && ` · ${Math.round(rate).toLocaleString()} rows/s`}
-                {remainingMs !== null && ` · about ${formatDuration(remainingMs)} left`}
-                {' · '}stopping keeps the tables loaded so far
+                {p.rowsTotal > 0 && `усього ${p.rowsDone.toLocaleString()} / ${p.rowsTotal.toLocaleString()} ${plural(p.rowsTotal, 'рядка', 'рядків', 'рядків')} · `}
+                минуло {formatDuration(p.elapsedMs)}
+                {rate > 0 && ` · ${Math.round(rate).toLocaleString()} рядків/с`}
+                {remainingMs !== null && ` · залишилося близько ${formatDuration(remainingMs)}`}
+                {' · '}після зупинки вже завантажені таблиці залишаються
             </p>
         </div>
     )
@@ -216,14 +217,14 @@ type ResultRow = MysqlImportResult['tables'][number]
 
 /** How a table's row count compares, read with the write mode in mind. */
 function checkOf(t: ResultRow, result: MysqlImportResult): { ok: boolean; text: string } {
-    if (t.importedRows === t.expectedRows) return { ok: true, text: 'match' }
+    if (t.importedRows === t.expectedRows) return { ok: true, text: 'збігається' }
     // A sync that keeps rows deleted in the old system leaves them in MySQL on purpose.
     if (result.writeMode === 'sync' && !result.syncDeletes && t.importedRows > t.expectedRows && !t.sync?.reloaded)
-        return { ok: true, text: `+${(t.importedRows - t.expectedRows).toLocaleString()} kept (gone from the DBF)` }
+        return { ok: true, text: `+${(t.importedRows - t.expectedRows).toLocaleString()} залишено (немає в DBF)` }
     // Appending adds to what the table held before.
     if (result.writeMode === 'append' && t.importedRows > t.expectedRows)
-        return { ok: true, text: `+${(t.importedRows - t.expectedRows).toLocaleString()} were already in the table` }
-    return { ok: false, text: 'mismatch' }
+        return { ok: true, text: `+${(t.importedRows - t.expectedRows).toLocaleString()} уже були в таблиці` }
+    return { ok: false, text: 'не збігається' }
 }
 
 function ImportResultTable({ result }: { result: MysqlImportResult }) {
@@ -241,26 +242,26 @@ function ImportResultTable({ result }: { result: MysqlImportResult }) {
         <div className="flex flex-col gap-2">
             <p className={cn('flex items-center gap-2 text-xs', allMatch ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive')}>
                 {allMatch ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}
-                {sync ? 'Sync' : 'Import'} {allMatch ? 'finished' : 'finished with row count differences'} — "{result.database}" on MySQL {result.serverVersion},
-                {' '}{result.tables.length} tables, {result.foreignKeysCreated} foreign keys, {result.indexesCreated} indexes, {(result.durationMs / 1000).toFixed(1)} s.
-                {sync && ` ${total('inserted').toLocaleString()} new, ${total('updated').toLocaleString()} changed, ${total('unchanged').toLocaleString()} unchanged` +
-                    (result.syncDeletes ? `, ${total('deleted').toLocaleString()} deleted` : '') +
-                    (reloaded > 0 ? `; ${reloaded} table${reloaded === 1 ? '' : 's'} without a primary key reloaded as a whole.` : '.')}
+                {sync ? 'Синхронізацію' : 'Імпорт'} {allMatch ? 'завершено' : 'завершено з розбіжностями в кількості рядків'} — "{result.database}" на MySQL {result.serverVersion},
+                {' '}таблиць: {result.tables.length}, зовнішніх ключів: {result.foreignKeysCreated}, індексів: {result.indexesCreated}, {(result.durationMs / 1000).toFixed(1)} с.
+                {sync && ` Нових: ${total('inserted').toLocaleString()}, змінених: ${total('updated').toLocaleString()}, без змін: ${total('unchanged').toLocaleString()}` +
+                    (result.syncDeletes ? `, видалених: ${total('deleted').toLocaleString()}` : '') +
+                    (reloaded > 0 ? `; таблиць без первинного ключа, завантажених заново повністю: ${reloaded}.` : '.')}
             </p>
             <Table containerClassName="max-h-[50vh]">
                 <TableHeader>
                     <TableRow>
-                        <TableHead>DBF file</TableHead>
-                        <TableHead>MySQL table</TableHead>
-                        <TableHead className="text-right">Rows in DBF</TableHead>
-                        <TableHead className="text-right">Rows in MySQL</TableHead>
+                        <TableHead>Файл DBF</TableHead>
+                        <TableHead>Таблиця MySQL</TableHead>
+                        <TableHead className="text-right">Рядків у DBF</TableHead>
+                        <TableHead className="text-right">Рядків у MySQL</TableHead>
                         {sync && <>
-                            <TableHead className="text-right">New</TableHead>
-                            <TableHead className="text-right">Changed</TableHead>
-                            <TableHead className="text-right">Unchanged</TableHead>
-                            <TableHead className="text-right">Deleted</TableHead>
+                            <TableHead className="text-right">Нові</TableHead>
+                            <TableHead className="text-right">Змінені</TableHead>
+                            <TableHead className="text-right">Без змін</TableHead>
+                            <TableHead className="text-right">Видалені</TableHead>
                         </>}
-                        <TableHead>Check</TableHead>
+                        <TableHead>Перевірка</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -268,13 +269,13 @@ function ImportResultTable({ result }: { result: MysqlImportResult }) {
                         const check = checks.get(t)!
                         return (
                             <TableRow key={t.table}>
-                                <TableCell>{t.fileName}{t.role === 'deleted' && <span className="text-muted-foreground"> · deleted records</span>}</TableCell>
+                                <TableCell>{t.fileName}{t.role === 'deleted' && <span className="text-muted-foreground"> · видалені записи</span>}</TableCell>
                                 <TableCell className="font-medium">{result.database}.{t.table}</TableCell>
                                 <TableCell className="text-right tabular-nums">{t.expectedRows.toLocaleString()}</TableCell>
                                 <TableCell className="text-right tabular-nums">{t.importedRows.toLocaleString()}</TableCell>
                                 {sync && (t.sync?.reloaded ? (
                                     <TableCell colSpan={4} className="text-right text-muted-foreground">
-                                        reloaded: {t.sync.inserted.toLocaleString()} rows
+                                        завантажено заново: {t.sync.inserted.toLocaleString()} {plural(t.sync.inserted, 'рядок', 'рядки', 'рядків')}
                                     </TableCell>
                                 ) : <>
                                     <TableCell className="text-right tabular-nums">{(t.sync?.inserted ?? 0).toLocaleString()}</TableCell>

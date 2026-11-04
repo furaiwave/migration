@@ -3,6 +3,7 @@ import type { DbfFileTypeByte } from './types/dbf-file-types.types'
 import type { DbfFieldDescriptor, DbfFieldOffset, DbfFieldTypeCode } from './types/dbf-field.types'
 import { decodeMemoText, isMemoField, isTextMemo, memoBlockOf, VFP_TYPE_BYTES, type MemoReader } from './memo'
 import { createDecoder, isSupportedEncoding, type TextDecoderLike } from './codepages'
+import { plural } from './plural'
 
 export { isSupportedEncoding } from './codepages'
 
@@ -371,10 +372,10 @@ export function binaryFieldText(type: string, slice: Buffer, typeByte: number): 
 function previewMemo(slice: Buffer, isText: boolean, decoder: TextDecoderLike, memo: MemoReader | null): string {
     const block = memoBlockOf(slice)
     if (block === 0) return ''
-    if (!memo) return `(memo: block ${block}, memo file not uploaded)`
+    if (!memo) return `(memo: блок ${block}, memo-файл не завантажено)`
     const data = memo.read(block)
-    if (!data) return `(memo: block ${block} not found)`
-    if (!isText) return `(memo: binary, ${data.length} bytes)`
+    if (!data) return `(memo: блок ${block} не знайдено)`
+    if (!isText) return `(memo: двійкові дані, ${data.length} ${plural(data.length, 'байт', 'байти', 'байтів')})`
     const text = decodeMemoText(decoder, data)
     return text.length > PREVIEW_MEMO_CHARS ? `${text.slice(0, PREVIEW_MEMO_CHARS)}…` : text
 }
@@ -542,7 +543,7 @@ export function parseDbfBuffer(
     encoding: string | null = null,
 ): RawDbfParseResult {
     if (buffer.length < HEADER_SIZE) {
-        throw new Error(`DBF file too small: ${buffer.length} bytes`)
+        throw new Error(`DBF-файл замалий: ${buffer.length} ${plural(buffer.length, 'байт', 'байти', 'байтів')}`)
     }
 
     const typeByte = buffer.readUInt8(0) as DbfFileTypeByte
@@ -550,10 +551,10 @@ export function parseDbfBuffer(
     const { recordCount, firstRecordOffset, recordLength, codePage } = layout
 
     if (firstRecordOffset < HEADER_SIZE || firstRecordOffset > buffer.length) {
-        throw new Error(`Invalid first-record offset: ${firstRecordOffset}`)
+        throw new Error(`Некоректне зміщення першого запису: ${firstRecordOffset}`)
     }
     if (recordLength <= 0) {
-        throw new Error(`Invalid record length: ${recordLength}`)
+        throw new Error(`Некоректна довжина запису: ${recordLength}`)
     }
 
     const rawFields = readDescriptors(buffer, layout, typeByte)

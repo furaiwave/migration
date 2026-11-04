@@ -31,14 +31,14 @@ function hintFor(code: string | undefined, options: MysqlExportOptions): string 
     switch (code) {
         case 'ER_DUP_ENTRY':
             return options.writeMode === 'append'
-                ? 'The table already holds these rows — choose "Replace tables" or "Sync" instead of "Append".'
-                : 'The data has duplicate values in a key column.'
+                ? 'Таблиця вже містить ці рядки — виберіть «Замінити таблиці» або «Синхронізувати» замість «Дописати рядки».'
+                : 'У даних є повторювані значення в ключовому стовпці.'
         case 'ER_DBACCESS_DENIED_ERROR': case 'ER_TABLEACCESS_DENIED_ERROR': case 'ER_SPECIFIC_ACCESS_DENIED_ERROR':
-            return 'This MySQL user needs CREATE, DROP, INSERT, ALTER and REFERENCES on the database.'
+            return 'Цьому користувачу MySQL потрібні права CREATE, DROP, INSERT, ALTER і REFERENCES на базу даних.'
         case 'ER_NET_PACKET_TOO_LARGE':
-            return 'A row is larger than the server allows — raise max_allowed_packet in my.ini.'
+            return 'Рядок більший, ніж дозволяє сервер, — збільште max_allowed_packet у my.ini.'
         case 'ER_FK_INCOMPATIBLE_COLUMNS': case 'ER_CANNOT_ADD_FOREIGN':
-            return 'Turn off "Create foreign keys" to import without them.'
+            return 'Вимкніть «Створювати зовнішні ключі», щоб імпортувати без них.'
         default:
             return null
     }
@@ -49,11 +49,11 @@ function describeMysqlError(err: unknown, connection: MysqlConnectionInput): str
     const e = err as { code?: string; message?: string; sqlMessage?: string }
     switch (e.code) {
         case 'ECONNREFUSED':
-            return `Cannot connect to ${connection.host}:${connection.port} — is the MySQL server running?`
+            return `Не вдається підключитися до ${connection.host}:${connection.port} — чи запущено сервер MySQL?`
         case 'ENOTFOUND':
-            return `Unknown host: ${connection.host}`
+            return `Невідомий хост: ${connection.host}`
         case 'ETIMEDOUT':
-            return `Connection to ${connection.host}:${connection.port} timed out`
+            return `Час очікування підключення до ${connection.host}:${connection.port} вичерпано`
         default:
             return `MySQL: ${e.sqlMessage ?? e.message ?? String(err)}${e.code ? ` (${e.code})` : ''}`
     }
@@ -100,10 +100,10 @@ async function schemaMismatches(
         const found = existing.get(t.table.toLowerCase())
         if (!found) continue // created by this run
         const missing = t.columns.filter(c => !found.columns.has(c.toLowerCase()))
-        if (missing.length > 0) problems.push(`${t.table} has no column ${missing.join(', ')}`)
+        if (missing.length > 0) problems.push(`у ${t.table} немає стовпців: ${missing.join(', ')}`)
         const planned = t.primaryKey.map(c => c.toLowerCase())
         if (checkKeys && planned.length > 0 && planned.join(',') !== [...found.primary].sort().join(','))
-            problems.push(`${t.table}: the primary key in MySQL is (${found.primary.join(', ') || 'none'}), the plan uses (${planned.join(', ')})`)
+            problems.push(`${t.table}: первинний ключ у MySQL — (${found.primary.join(', ') || 'немає'}), у плані — (${planned.join(', ')})`)
     }
     return problems
 }
@@ -156,7 +156,7 @@ export class MysqlImportService {
         input: MysqlConnectionInput,
     ): Promise<MysqlImportStatus> {
         if (!options.database)
-            throw new BadRequestException('Choose a database name to import into')
+            throw new BadRequestException('Вкажіть назву бази даних для імпорту')
 
         const { plan, chunks, expected } = this.exportService.statements(session, relationships, options)
         // These would make MySQL reject rows halfway through, leaving a half-loaded database behind.
@@ -164,7 +164,7 @@ export class MysqlImportService {
         if (blocking.length > 0) {
             const list = blocking.slice(0, 3).map(q => `${q.table}.${q.column}: ${q.problem}`).join('; ')
             throw new BadRequestException(
-                `${blocking.length} data problem(s) would make MySQL reject the import — fix them in the plan first (${list}${blocking.length > 3 ? '; …' : ''})`)
+                `Проблем у даних, через які MySQL відхилить імпорт: ${blocking.length} — спершу виправте їх у плані (${list}${blocking.length > 3 ? '; …' : ''})`)
         }
 
         const connection = await this.connect(input)
@@ -180,8 +180,8 @@ export class MysqlImportService {
             if (problems.length > 0) {
                 await connection.end().catch(() => { /* closing anyway */ })
                 throw new BadRequestException(
-                    `The tables already in "${options.database}" do not match the plan: ${problems.join('; ')}. ` +
-                    'Change the plan to match them (names, primary key), or use "Replace tables".')
+                    `Таблиці, що вже є в "${options.database}", не відповідають плану: ${problems.join('; ')}. ` +
+                    'Змініть план під них (назви, первинний ключ) або виберіть «Замінити таблиці».')
             }
         }
 
@@ -216,14 +216,14 @@ export class MysqlImportService {
 
     getStatus(jobId: string): MysqlImportStatus {
         const job = this.jobs.get(jobId)
-        if (!job) throw new NotFoundException('Import not found — it finished more than an hour ago or the backend restarted')
+        if (!job) throw new NotFoundException('Імпорт не знайдено — він завершився понад годину тому або бекенд перезапускався')
         return this.statusOf(job)
     }
 
     /** Stops after the statement in flight; tables loaded so far stay in MySQL. */
     cancel(jobId: string): MysqlImportStatus {
         const job = this.jobs.get(jobId)
-        if (!job) throw new NotFoundException('Import not found')
+        if (!job) throw new NotFoundException('Імпорт не знайдено')
         if (job.state === 'running') job.cancelRequested = true
         return this.statusOf(job)
     }
@@ -322,15 +322,15 @@ export class MysqlImportService {
             this.logger.log(`Imported session ${sessionId} into ${input.host}:${input.port}/${database} (${options.writeMode}) in ${result.durationMs} ms`)
         } catch (err) {
             const partial = p.phase === 'tables' && p.table && !doneTables.includes(p.table) && p.tableRowsDone > 0
-                ? ` Table "${p.table}" was left half-loaded (${p.tableRowsDone.toLocaleString('en-US')} of ${p.tableRows.toLocaleString('en-US')} rows).`
+                ? ` Таблицю "${p.table}" завантажено частково (${p.tableRowsDone.toLocaleString('uk-UA')} з ${p.tableRows.toLocaleString('uk-UA')} рядків).`
                 : ''
-            const kept = (doneTables.length > 0 ? ` Tables already loaded stay in "${database}": ${doneTables.join(', ')}.` : '') + partial
+            const kept = (doneTables.length > 0 ? ` Уже завантажені таблиці залишаються в "${database}": ${doneTables.join(', ')}.` : '') + partial
             if (err instanceof ImportCancelled) {
                 job.state = 'cancelled'
-                job.error = `Import cancelled.${kept}`
+                job.error = `Імпорт скасовано.${kept}`
             } else {
                 const hint = hintFor((err as { code?: string }).code, options)
-                const where = p.phase === 'foreign_keys' ? ' Failed while adding foreign keys.' : p.table ? ` Failed on table "${p.table}".` : ''
+                const where = p.phase === 'foreign_keys' ? ' Збій під час додавання зовнішніх ключів.' : p.table ? ` Збій на таблиці "${p.table}".` : ''
                 job.state = 'failed'
                 job.error = `${describeMysqlError(err, input)}.${where}${hint ? ` ${hint}` : ''}${kept}`
             }

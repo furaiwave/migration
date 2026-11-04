@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { apiRequest } from '@/client/client';
 import { ENCODINGS, ENCODING_SOURCE_LABEL } from '@/lib/encodings';
 import { errorMessage } from '@/lib/errors';
+import { plural } from '@/lib/plural';
 import { HeaderInspector } from './HeaderInspector';
 import { FieldSchemaTable } from './FieldSchemaTable';
 import { RecordPreviewTable } from './RecordPreviewTable';
@@ -32,11 +33,11 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">
-            {view === 'schema' ? 'Field schema' : 'Record preview'}
+            {view === 'schema' ? 'Структура полів' : 'Перегляд записів'}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
               {view === 'schema'
-                ? `${file.header.fields.length} fields`
-                : `${file.preview.length} of ${file.totalRecords.toLocaleString()} records`}
+                ? `${file.header.fields.length} ${plural(file.header.fields.length, 'поле', 'поля', 'полів')}`
+                : `${file.preview.length} з ${file.totalRecords.toLocaleString()} ${plural(file.totalRecords, 'запису', 'записів', 'записів')}`}
             </span>
           </h3>
           <div className="flex gap-1">
@@ -45,14 +46,14 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
               size="sm"
               onClick={() => setView('schema')}
             >
-              Schema
+              Структура
             </Button>
             <Button
               variant={view === 'data' ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => setView('data')}
             >
-              Data
+              Дані
             </Button>
           </div>
         </div>
@@ -71,21 +72,21 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-sm font-semibold">
-        Indexes
+        Індекси
         <span className="ml-2 text-xs font-normal text-muted-foreground">
-          {index.fileName} · {index.tags.length} tag{index.tags.length === 1 ? '' : 's'}
+          {index.fileName} · {index.tags.length} {plural(index.tags.length, 'тег', 'теги', 'тегів')}
         </span>
       </h3>
       {index.error ? (
-        <p className="text-xs text-destructive">Could not read {index.fileName}: {index.error}</p>
+        <p className="text-xs text-destructive">Не вдалося прочитати {index.fileName}: {index.error}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Tag</TableHead>
-              <TableHead>Key expression</TableHead>
-              <TableHead>Filter (FOR)</TableHead>
-              <TableHead>Kind</TableHead>
+              <TableHead>Тег</TableHead>
+              <TableHead>Вираз ключа</TableHead>
+              <TableHead>Фільтр (FOR)</TableHead>
+              <TableHead>Вид</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -95,7 +96,7 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
                 <TableCell className="font-mono text-xs">{t.expression}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{t.filter ?? '—'}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {[t.candidate && 'candidate', t.unique && 'unique', t.descending && 'descending'].filter(Boolean).join(', ') || 'regular'}
+                  {[t.candidate && 'кандидат', t.unique && 'унікальний', t.descending && 'спадний'].filter(Boolean).join(', ') || 'звичайний'}
                 </TableCell>
               </TableRow>
             ))}
@@ -114,7 +115,7 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
   const value = file.encodingSource === 'manual' ? file.encoding : '';
   const items = ENCODINGS.map((e) =>
     e.value === '' && file.encodingSource !== 'manual'
-      ? { value: '', label: `Automatic — ${file.encoding}, ${ENCODING_SOURCE_LABEL[file.encodingSource]}` }
+      ? { value: '', label: `Автоматично — ${file.encoding}, ${ENCODING_SOURCE_LABEL[file.encodingSource]}` }
       : { value: e.value, label: e.label },
   );
 
@@ -132,7 +133,7 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs">
-      <span className="font-semibold">Text encoding</span>
+      <span className="font-semibold">Кодування тексту</span>
       <Select items={items} value={value} onValueChange={(v) => choose(v ?? '')} disabled={pending}>
         <SelectTrigger size="sm" className="min-w-72">
           <SelectValue />
@@ -145,10 +146,10 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
       <span className="text-muted-foreground">
         {file.encodingSource === 'detected'
           ? `${file.header.codePage === 0
-              ? 'The file has no code page mark'
-              : `The code page mark (0x${file.header.codePage.toString(16).toUpperCase()}) is unknown or does not match the text`
-            }, so the encoding was guessed — check the Data view; if the letters look wrong, pick another encoding.`
-          : 'Field names, the preview and the MySQL export all use this encoding.'}
+              ? 'У файлі немає позначки кодової сторінки'
+              : `Позначка кодової сторінки (0x${file.header.codePage.toString(16).toUpperCase()}) невідома або не відповідає тексту`
+            }, тому кодування визначено за текстом — перевірте вкладку «Дані»; якщо літери неправильні, виберіть інше кодування.`
+          : 'Це кодування використовується для назв полів, перегляду та експорту в MySQL.'}
       </span>
       {error && <span className="text-destructive">{error}</span>}
     </div>

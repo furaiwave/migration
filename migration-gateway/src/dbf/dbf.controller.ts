@@ -49,7 +49,7 @@ class FileEncodingDto {
 
 class MysqlExportDto {
     @IsOptional()
-    @Matches(/^[A-Za-z0-9_]{0,64}$/, { message: 'database: letters, digits and _ only, up to 64 characters' })
+    @Matches(/^[A-Za-z0-9_]{0,64}$/, { message: 'Назва бази даних: лише латинські літери, цифри та _, до 64 символів' })
     database?: string
     @IsOptional() @IsBoolean() includeData?: boolean
     @IsOptional() @IsBoolean() foreignKeys?: boolean
@@ -113,7 +113,7 @@ export class DbfController {
         defParamCharset: 'utf8',
         fileFilter: (_req, file, cb) => {
             const ok = /\.(dbf|fpt|dbt|cdx)$/i.test(file.originalname)
-            cb(ok ? null : new BadRequestException(`Not a .dbf/.fpt/.dbt/.cdx file: ${file.originalname}`), ok)
+            cb(ok ? null : new BadRequestException(`Це не файл .dbf/.fpt/.dbt/.cdx: ${file.originalname}`), ok)
         },
         limits: { fileSize: 100 * 1024 * 1024 }
     }))
@@ -122,7 +122,7 @@ export class DbfController {
         @Body() dto: ParseQueryDto,
     ): ParseMultipleResult {
         if(!files?.length)
-            throw new BadRequestException('No files uploaded')
+            throw new BadRequestException('Файли не завантажено')
 
         return this.dbfService.parseMultipleFiles(
             files.map(f => ({
@@ -187,7 +187,7 @@ export class DbfController {
     ): { file: DbfFilePreview; graph: DbfRelationshipGraph } {
         const encoding = dto.encoding || null
         if(encoding !== null && !isSupportedEncoding(encoding))
-            throw new BadRequestException(`Unsupported encoding: ${encoding}`)
+            throw new BadRequestException(`Непідтримуване кодування: ${encoding}`)
         const name = toFileName(fileName)
         const session = this.sessionService.setFileEncoding(toSessionId(id), name, encoding)
         return { file: toPreview(name, session.files.get(name)!), graph: this.graphOf(session) }

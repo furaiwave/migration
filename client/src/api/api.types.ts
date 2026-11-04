@@ -13,11 +13,11 @@ export type DbfFieldTypeCode =
     | '0' | '@' | 'O'
 
 export const FIELD_TYPE_LABELS = {
-    C: 'Character', N: 'Numeric', F: 'Float', D: 'Date',
-    T: 'DateTime', L: 'Logical', M: 'Memo', B: 'Double',
-    G: 'General', P: 'Picture', Y: 'Currency', I: 'Integer',
-    V: 'Varchar', Q: 'Varbinary', '+': 'Autoinc',
-    '0': 'Null flags', '@': 'Timestamp', O: 'Double',
+    C: 'Символьний', N: 'Числовий', F: 'Дробовий (Float)', D: 'Дата',
+    T: 'Дата й час', L: 'Логічний', M: 'Memo', B: 'Double',
+    G: 'General (OLE)', P: 'Picture', Y: 'Грошовий', I: 'Цілий',
+    V: 'Varchar', Q: 'Varbinary', '+': 'Автоінкремент',
+    '0': 'Прапорці NULL', '@': 'Мітка часу', O: 'Double',
 } as const satisfies Record<DbfFieldTypeCode, string>
 
 export type FieldCategory = 'text' | 'number' | 'temporal' | 'boolean' | 'blob'

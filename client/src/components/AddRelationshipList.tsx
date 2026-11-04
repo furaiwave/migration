@@ -67,7 +67,7 @@ export function AddRelationshipForm({
                     onValueChange={(file) => set({ file: file ?? '', field: '' })}
                 >
                     <SelectTrigger className="font-mono">
-                        <SelectValue placeholder="Table"/>
+                        <SelectValue placeholder="Таблиця"/>
                     </SelectTrigger>
                     <SelectContent>
                         {files.map((f) => (
@@ -81,7 +81,7 @@ export function AddRelationshipForm({
                     disabled={value.file === ''}
                 >
                     <SelectTrigger className="font-mono">
-                        <SelectValue placeholder="Field" />
+                        <SelectValue placeholder="Поле" />
                     </SelectTrigger>
                     <SelectContent>
                         {(fieldsOf.get(value.file) ?? []).map((name) => (<SelectItem key={name} value={name} className="font-mono">{name}</SelectItem>))}
@@ -94,12 +94,12 @@ export function AddRelationshipForm({
     return(
         <div className="flex flex-col gap-3 border p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                {renderPoint('Source', source, setSource)}
+                {renderPoint('Джерело', source, setSource)}
                 <span className="hidden pb-2.5 text-muted-foreground sm:block">→</span>
-                {renderPoint('Target', target, setTarget)}
+                {renderPoint('Ціль', target, setTarget)}
                 <Button disabled={!canSubmit || isPending} onClick={submit} className={"sm:mb-0"}>
                     {isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-                    Link
+                    Зв'язати
                 </Button>
             </div>
             {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}

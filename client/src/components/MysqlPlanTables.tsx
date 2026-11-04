@@ -12,6 +12,7 @@ import type {
     MysqlColumnOverride,
     MysqlColumnPlan,
     MysqlExportPlan,
+    MysqlForeignKeyPlan,
     MysqlIndexPlan,
     MysqlPlanOverrides,
     MysqlTableOverride,
@@ -19,6 +20,12 @@ import type {
 } from "@/api/api.types";
 
 const TYPE_LIST_ID = 'mysql-type-suggestions'
+
+const FK_SOURCE_LABEL: Readonly<Record<MysqlForeignKeyPlan['source'], string>> = {
+    auto_name: 'збіг назв',
+    auto_fk: 'зовнішній ключ',
+    manual: 'вручну',
+}
 const PK_AUTO = '__auto__'
 const PK_NONE = '__none__'
 
@@ -55,28 +62,28 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="text-sm font-semibold">
-                        Column mapping
+                        Відповідність стовпців
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            edit names and types in place · Enter or leaving the field applies · empty = back to automatic
+                            назви й типи редагуються прямо тут · застосовується за Enter або при виході з поля · порожньо = автоматично
                         </span>
                     </h3>
                     {hasEdits && (
                         <Button variant="outline" size="sm" onClick={edits.onReset}>
-                            <RotateCcw /> Reset all edits
+                            <RotateCcw /> Скинути всі зміни
                         </Button>
                     )}
                 </div>
                 <Table containerClassName="max-h-[70vh]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-12 text-center" title="Export this field">Use</TableHead>
-                            <TableHead>DBF field</TableHead>
-                            <TableHead>DBF type</TableHead>
-                            <TableHead>MySQL column</TableHead>
-                            <TableHead>MySQL type</TableHead>
+                            <TableHead className="w-12 text-center" title="Експортувати це поле">Вкл.</TableHead>
+                            <TableHead>Поле DBF</TableHead>
+                            <TableHead>Тип DBF</TableHead>
+                            <TableHead>Стовпець MySQL</TableHead>
+                            <TableHead>Тип MySQL</TableHead>
                             <TableHead>Null</TableHead>
-                            <TableHead>Key</TableHead>
-                            <TableHead>Note</TableHead>
+                            <TableHead>Ключ</TableHead>
+                            <TableHead>Примітка</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -94,25 +101,25 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
 
             <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold">
-                    Foreign keys
+                    Зовнішні ключі
                     <span className="ml-2 font-normal text-muted-foreground">
-                        {created} will be created, {plan.foreignKeys.length - created} skipped
+                        буде створено: {created}, пропущено: {plan.foreignKeys.length - created}
                     </span>
                 </h3>
                 {plan.foreignKeys.length === 0 ? (
                     <div className="flex h-16 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                        No relationships to turn into foreign keys.
+                        Немає зв'язків, з яких можна зробити зовнішні ключі.
                     </div>
                 ) : (
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Child column</TableHead>
+                                <TableHead>Статус</TableHead>
+                                <TableHead>Дочірній стовпець</TableHead>
                                 <TableHead className="w-10 text-center">→</TableHead>
-                                <TableHead>Referenced column</TableHead>
-                                <TableHead>Found by</TableHead>
-                                <TableHead>Constraint / reason</TableHead>
+                                <TableHead>Батьківський стовпець</TableHead>
+                                <TableHead>Як знайдено</TableHead>
+                                <TableHead>Обмеження / причина</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -120,13 +127,13 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
                                 <TableRow key={`${fk.childTable}.${fk.childColumn}-${fk.parentTable}.${fk.parentColumn}-${i}`}>
                                     <TableCell>
                                         {fk.status === 'create'
-                                            ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">create</Badge>
-                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">skip</Badge>}
+                                            ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">створити</Badge>
+                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">пропустити</Badge>}
                                     </TableCell>
                                     <TableCell>{fk.childTable}.{fk.childColumn}</TableCell>
                                     <TableCell className="text-center text-muted-foreground">→</TableCell>
                                     <TableCell>{fk.parentTable}.{fk.parentColumn}</TableCell>
-                                    <TableCell className="text-muted-foreground">{fk.source.replace('_', ' ')}</TableCell>
+                                    <TableCell className="text-muted-foreground">{FK_SOURCE_LABEL[fk.source]}</TableCell>
                                     <TableCell className={cn('whitespace-normal', fk.status === 'skip' && 'text-muted-foreground')}>
                                         {fk.status === 'create' ? fk.name : fk.reason}
                                     </TableCell>
@@ -141,7 +148,7 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
 
             {plan.warnings.length > 0 && (
                 <div className="flex flex-col gap-2">
-                    <h3 className="text-sm font-semibold">Warnings</h3>
+                    <h3 className="text-sm font-semibold">Попередження</h3>
                     <Table>
                         <TableBody>
                             {plan.warnings.map((w) => (
@@ -166,35 +173,35 @@ function QualityTable({ plan, dataChecked }: { plan: MysqlExportPlan; dataChecke
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
-                Data quality
+                Якість даних
                 <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    every record checked against the MySQL types before anything is sent
+                    кожен запис звірено з типами MySQL ще до відправлення
                 </span>
             </h3>
             {!dataChecked ? (
-                <p className="text-xs text-muted-foreground">Data is not included in the export, so values were not checked.</p>
+                <p className="text-xs text-muted-foreground">Дані не входять в експорт, тому значення не перевірялися.</p>
             ) : plan.quality.length === 0 ? (
                 <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="size-3.5" />
-                    No problems — all {rows.toLocaleString()} rows will arrive unchanged.
+                    Проблем немає — усі рядки ({rows.toLocaleString()}) надійдуть без змін.
                 </p>
             ) : (
                 <>
                     {failing > 0 && (
                         <p className="text-xs text-destructive">
-                            {failing} problem{failing === 1 ? '' : 's'} would make MySQL reject rows — the import is blocked until they are fixed
-                            (change the column type, pick another primary key or exclude the field below).
+                            Проблем, через які MySQL відхилить рядки: {failing} — імпорт заблоковано, доки їх не виправлено
+                            (змініть тип стовпця, виберіть інший первинний ключ або виключіть поле нижче).
                         </p>
                     )}
                     <Table containerClassName="max-h-[50vh]">
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Effect</TableHead>
-                                <TableHead>Column</TableHead>
-                                <TableHead>DBF field</TableHead>
-                                <TableHead>Problem</TableHead>
-                                <TableHead className="text-right">Values</TableHead>
-                                <TableHead>Examples (as in the DBF)</TableHead>
+                                <TableHead>Наслідок</TableHead>
+                                <TableHead>Стовпець</TableHead>
+                                <TableHead>Поле DBF</TableHead>
+                                <TableHead>Проблема</TableHead>
+                                <TableHead className="text-right">Значень</TableHead>
+                                <TableHead>Приклади (як у DBF)</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -202,8 +209,8 @@ function QualityTable({ plan, dataChecked }: { plan: MysqlExportPlan; dataChecke
                                 <TableRow key={`${q.table}.${q.column}.${q.problem}`}>
                                     <TableCell>
                                         {q.effect === 'fail'
-                                            ? <Badge variant="outline" className="border-destructive/40 text-destructive">import fails</Badge>
-                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">becomes NULL</Badge>}
+                                            ? <Badge variant="outline" className="border-destructive/40 text-destructive">імпорт впаде</Badge>
+                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">стане NULL</Badge>}
                                     </TableCell>
                                     <TableCell className="font-medium">{q.table}.{q.column}</TableCell>
                                     <TableCell className="text-muted-foreground">{q.fileName} · {q.dbfField}</TableCell>
@@ -227,10 +234,10 @@ function QualityTable({ plan, dataChecked }: { plan: MysqlExportPlan; dataChecke
 // ---------------------------------------------------------------- indexes
 
 const INDEX_STATUS: Readonly<Record<MysqlIndexPlan['status'], { label: string; className: string }>> = {
-    create: { label: 'create', className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' },
-    primary: { label: 'primary key', className: 'border-sky-500/30 text-sky-700 dark:text-sky-300' },
-    skip: { label: 'skip', className: 'border-amber-500/30 text-amber-700 dark:text-amber-300' },
-    excluded: { label: 'off', className: 'text-muted-foreground' },
+    create: { label: 'створити', className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' },
+    primary: { label: 'первинний ключ', className: 'border-sky-500/30 text-sky-700 dark:text-sky-300' },
+    skip: { label: 'пропустити', className: 'border-amber-500/30 text-amber-700 dark:text-amber-300' },
+    excluded: { label: 'вимкнено', className: 'text-muted-foreground' },
 }
 
 function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & PlanEdits) {
@@ -248,26 +255,26 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
-                Indexes from .CDX
+                Індекси з .CDX
                 <span className="ml-2 font-normal text-muted-foreground">
-                    {created} will be created, {rows.length - created} not · from {withFile} index file{withFile === 1 ? '' : 's'}
+                    буде створено: {created}, не буде: {rows.length - created} · з індексних файлів: {withFile}
                 </span>
             </h3>
             {rows.length === 0 ? (
                 <div className="flex h-16 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                    The uploaded .CDX files have no tags.
+                    У завантажених файлах .CDX немає тегів.
                 </div>
             ) : (
                 <Table containerClassName="max-h-[50vh]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-12 text-center">Use</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Table</TableHead>
-                            <TableHead>CDX tag</TableHead>
-                            <TableHead>FoxPro expression</TableHead>
-                            <TableHead>MySQL index</TableHead>
-                            <TableHead>Note</TableHead>
+                            <TableHead className="w-12 text-center">Вкл.</TableHead>
+                            <TableHead>Статус</TableHead>
+                            <TableHead>Таблиця</TableHead>
+                            <TableHead>Тег CDX</TableHead>
+                            <TableHead>Вираз FoxPro</TableHead>
+                            <TableHead>Індекс MySQL</TableHead>
+                            <TableHead>Примітка</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -282,7 +289,7 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
                                             className="size-3.5 cursor-pointer accent-primary align-middle disabled:cursor-default"
                                             checked={ix.status === 'create' || ix.status === 'primary'}
                                             disabled={!switchable}
-                                            aria-label={`Create index ${ix.tag} on ${t.table}`}
+                                            aria-label={`Створити індекс ${ix.tag} у ${t.table}`}
                                             onChange={(e) => toggle(t.fileName, ix.tag, e.target.checked)}
                                         />
                                     </TableCell>
@@ -290,8 +297,8 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
                                     <TableCell>{t.table}</TableCell>
                                     <TableCell className="font-medium">
                                         {ix.tag}
-                                        {ix.candidate && <span className="ml-1.5 text-xs font-normal text-muted-foreground">candidate</span>}
-                                        {ix.unique && <span className="ml-1.5 text-xs font-normal text-muted-foreground">unique</span>}
+                                        {ix.candidate && <span className="ml-1.5 text-xs font-normal text-muted-foreground">кандидат</span>}
+                                        {ix.unique && <span className="ml-1.5 text-xs font-normal text-muted-foreground">унікальний</span>}
                                     </TableCell>
                                     <TableCell className="font-mono text-xs">
                                         {ix.expression}
@@ -355,7 +362,7 @@ function EditableCell({
             disabled={disabled}
             list={list}
             aria-invalid={error !== null}
-            title={error ?? (edited ? 'Changed by you — clear the field to go back to automatic' : undefined)}
+            title={error ?? (edited ? 'Змінено вами — очистьте поле, щоб повернути автоматичне значення' : undefined)}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
             onKeyDown={(e) => {
@@ -372,8 +379,8 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
     const included = t.columns.filter((c) => !c.excluded)
     const pkValue = override.primaryKey === undefined ? PK_AUTO : override.primaryKey === null ? PK_NONE : override.primaryKey
     const pkItems = [
-        { value: PK_AUTO, label: 'automatic' },
-        { value: PK_NONE, label: 'none' },
+        { value: PK_AUTO, label: 'автоматично' },
+        { value: PK_NONE, label: 'немає' },
         ...included.map((c) => ({ value: c.dbfField, label: c.column })),
     ]
 
@@ -384,7 +391,7 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
                     type="checkbox"
                     className="size-3.5 cursor-pointer accent-primary align-middle"
                     checked={!override.exclude}
-                    aria-label={`Export ${t.fileName}`}
+                    aria-label={`Експортувати ${t.fileName}`}
                     onChange={(e) => onTable(t.fileName, { exclude: e.target.checked ? undefined : true })}
                 />
             </TableCell>
@@ -401,11 +408,11 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
                         className="w-48"
                     />
                     {t.excluded ? (
-                        <span className="text-muted-foreground">left out of the export</span>
+                        <span className="text-muted-foreground">не входить в експорт</span>
                     ) : (
                         <>
                             <span className="flex items-center gap-2 text-muted-foreground">
-                                primary key
+                                первинний ключ
                                 <Select
                                     items={pkItems}
                                     value={pkValue}
@@ -422,14 +429,14 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
                                 </Select>
                             </span>
                             <span className="font-normal text-muted-foreground">
-                                {included.length} of {t.columns.length} columns · {t.rowCount.toLocaleString()} rows · {t.encoding}
+                                стовпців: {included.length} з {t.columns.length} · рядків: {t.rowCount.toLocaleString()} · {t.encoding}
                                 {t.deletedRows > 0 && (t.deletedTable
-                                    ? ` · ${t.deletedRows.toLocaleString()} deleted → ${t.deletedTable}`
-                                    : ` · ${t.deletedRows.toLocaleString()} deleted (left out)`)}
+                                    ? ` · видалених: ${t.deletedRows.toLocaleString()} → ${t.deletedTable}`
+                                    : ` · видалених: ${t.deletedRows.toLocaleString()} (пропускаються)`)}
                                 {t.memoFile && ` · memo ${t.memoFile}`}
-                                {t.indexFile && ` · indexes ${t.indexFile}`}
-                                {syncMode && t.sync === 'reload' && ' · no primary key: sync reloads the whole table'}
-                                {t.skippedFields.length > 0 && ` · no MySQL type for ${t.skippedFields.join(', ')}`}
+                                {t.indexFile && ` · індекси ${t.indexFile}`}
+                                {syncMode && t.sync === 'reload' && ' · немає первинного ключа: синхронізація завантажує таблицю заново'}
+                                {t.skippedFields.length > 0 && ` · немає типу MySQL для ${t.skippedFields.join(', ')}`}
                             </span>
                         </>
                     )}
@@ -449,7 +456,7 @@ function ColumnMappingRow({ table: t, column: c, overrides, onColumn }: { table:
                     type="checkbox"
                     className="size-3.5 cursor-pointer accent-primary align-middle"
                     checked={!c.excluded}
-                    aria-label={`Export ${t.fileName}.${c.dbfField}`}
+                    aria-label={`Експортувати ${t.fileName}.${c.dbfField}`}
                     onChange={(e) => onColumn(t.fileName, c.dbfField, { exclude: e.target.checked ? undefined : true })}
                 />
             </TableCell>
@@ -483,9 +490,9 @@ function ColumnMappingRow({ table: t, column: c, overrides, onColumn }: { table:
                     edited={c.typeOverridden}
                 />
             </TableCell>
-            <TableCell>{c.excluded ? '' : c.nullable ? 'YES' : 'NO'}</TableCell>
+            <TableCell>{c.excluded ? '' : c.nullable ? 'так' : 'ні'}</TableCell>
             <TableCell>{c.excluded ? '' : c.key ?? '—'}</TableCell>
-            <TableCell className="text-muted-foreground">{c.excluded ? 'not exported' : c.note ?? ''}</TableCell>
+            <TableCell className="text-muted-foreground">{c.excluded ? 'не експортується' : c.note ?? ''}</TableCell>
         </TableRow>
     )
 }

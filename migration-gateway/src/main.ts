@@ -27,7 +27,12 @@ async function bootstrap() {
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin
     if (origin && !CLIENT_ORIGINS.includes(origin)) {
-      res.status(403).json({ statusCode: 403, message: `Origin not allowed: ${origin}` })
+      // The client still gets to read why, instead of a bare network error.
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.status(403).json({
+        statusCode: 403,
+        message: `Бекенд не приймає запити зі сторінки ${origin}. Відкрийте застосунок за адресою ${CLIENT_ORIGINS[0]} або додайте цю адресу в CLIENT_ORIGINS і перезапустіть бекенд.`,
+      })
       return
     }
     next()

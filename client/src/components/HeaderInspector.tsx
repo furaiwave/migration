@@ -10,8 +10,8 @@ function formatLastUpdate({ year, month, day }: DbfHeader['lastUpdate']): string
 function flagsOf(header: DbfHeader): string {
     const flags: string[] = []
     if(header.hasMemo) flags.push('memo')
-    if(header.tableFlags.hasStructuralCdx) flags.push('.cdx index')
-    if(header.tableFlags.isDatabase) flags.push('.dbc database')
+    if(header.tableFlags.hasStructuralCdx) flags.push('індекс .cdx')
+    if(header.tableFlags.isDatabase) flags.push('база .dbc')
     return flags.length > 0 ? flags.join(', ') : '—'
 }
 
@@ -25,18 +25,18 @@ interface HeaderInspectorProps {
 
 export function HeaderInspector({ header, encoding, memoFile, liveRecords }: HeaderInspectorProps){
     const columns: ReadonlyArray<readonly [label: string, value: string]> = [
-        ['Format', header.typeName],
-        ['Type byte', hex(header.typeByte)],
-        ['Records', liveRecords.toLocaleString()],
-        ['Deleted', (header.recordCount - liveRecords).toLocaleString()],
-        ['Fields', String(header.fields.length)],
-        ['Record length', `${header.recordLength} B`],
-        ['Data offset', `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
-        ['Last update', formatLastUpdate(header.lastUpdate)],
-        ['Code page', hex(header.codePage)],
-        ['Encoding', encoding ?? '—'],
-        ['Flags', flagsOf(header)],
-        ['Memo file', memoFile ?? '—'],
+        ['Формат', header.typeName],
+        ['Байт типу', hex(header.typeByte)],
+        ['Записи', liveRecords.toLocaleString()],
+        ['Видалені', (header.recordCount - liveRecords).toLocaleString()],
+        ['Поля', String(header.fields.length)],
+        ['Довжина запису', `${header.recordLength} Б`],
+        ['Зміщення даних', `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
+        ['Останнє оновлення', formatLastUpdate(header.lastUpdate)],
+        ['Кодова сторінка', hex(header.codePage)],
+        ['Кодування', encoding ?? '—'],
+        ['Ознаки', flagsOf(header)],
+        ['Memo-файл', memoFile ?? '—'],
     ]
 
     return(

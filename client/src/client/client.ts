@@ -97,6 +97,14 @@ export class ApiError extends Error {
     }
 }
 
+/** No answer from the backend at all (browsers word it "Failed to fetch" / "NetworkError"). */
+export class BackendUnreachableError extends Error {
+    constructor(readonly baseUrl: string, cause: unknown) {
+        super(`Немає зв'язку з бекендом (${baseUrl}). Запустіть його: npm run start:dev у папці migration-gateway — і спробуйте ще раз.`, { cause })
+        this.name = 'BackendUnreachableError'
+    }
+}
+
 function buildPath<R extends ApiRoute>(route: R, params: ParamsOf<R>): string {
     const path = route.slice(route.indexOf(' ') + 1)
     return path.replace(/:([A-Za-z0-9_]+)/g, (_, key: string) => {
@@ -125,7 +133,13 @@ export async function apiRequest<R extends ApiRoute>(
         body: isFormData ? (args.body as FormData): args.body !== undefined ? JSON.stringify(args.body): undefined
     }
 
-    const res = await fetch(url, init)
+    let res: Response
+    try {
+        res = await fetch(url, init)
+    } catch (err) {
+        // fetch rejects only when no response came back at all: the backend is down or unreachable.
+        throw new BackendUnreachableError(API_BASE, err)
+    }
 
     if(!res.ok){
         let parsed: unknown = null

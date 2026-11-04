@@ -7,8 +7,8 @@ export function errorMessage(err: unknown): string {
     const msg = body?.message;
     if (Array.isArray(msg)) return msg.join('; ');
     if (typeof msg === 'string') return msg;
-    return `Request failed (${err.status}).`;
+    return `Запит не вдався (${err.status}).`;
   }
   if (err instanceof Error) return err.message;
-  return 'Something went wrong.';
+  return 'Щось пішло не так.';
 }

@@ -51,10 +51,10 @@ export function RelationshipsPanel({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Relationships</h2>
+        <h2 className="text-sm font-semibold">Зв'язки</h2>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {stats.total} total · {stats.autoName} by name · {stats.autoFk} foreign key · {stats.manual} manual
-          {stats.disabled > 0 && ` · ${stats.disabled} switched off`}
+          усього {stats.total} · за назвою {stats.autoName} · зовнішніх ключів {stats.autoFk} · вручну {stats.manual}
+          {stats.disabled > 0 && ` · вимкнено ${stats.disabled}`}
         </p>
       </div>
       <RelationshipList

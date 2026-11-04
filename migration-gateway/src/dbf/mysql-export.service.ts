@@ -3,6 +3,7 @@ import { Readable } from 'stream'
 import { binaryFieldText, encodingFromCodePage, fieldBytes, isDbase7, iterateRecords, recordNumberOf, type RecordSet } from '../addon'
 import { createDecoder, type TextDecoderLike } from '../codepages'
 import { transliterate } from '../translit'
+import { plural } from '../plural'
 import { decodeMemoText, memoBlockOf, openMemo, VFP_TYPE_BYTES, type MemoReader } from '../memo'
 import { indexParts, type CdxTag } from '../cdx'
 import { isCharacterType, isKeyableType, typeProblem, type ValueKind } from './mysql-types'
@@ -201,22 +202,22 @@ function lossReason(column: ColumnSpec, record: Buffer, memo: MemoReader | null)
     if (slice === null) return null
     switch (column.kind) {
         case 'number':
-            return slice.toString('latin1').trim() === '' ? null : 'not a number — becomes NULL'
+            return slice.toString('latin1').trim() === '' ? null : 'не число — стане NULL'
         case 'date': {
             const raw = slice.toString('latin1').trim()
-            return raw === '' || /^0+$/.test(raw) ? null : 'impossible date — becomes NULL'
+            return raw === '' || /^0+$/.test(raw) ? null : 'неможлива дата — стане NULL'
         }
         case 'datetime':
-            return slice.every(b => b === 0 || b === 0x20) ? null : 'impossible date/time — becomes NULL'
+            return slice.every(b => b === 0 || b === 0x20) ? null : 'неможливі дата й час — стане NULL'
         case 'bool':
-            return ' ?\0'.includes(String.fromCharCode(slice[0] ?? 0x20)) ? null : 'not T/F/Y/N — becomes NULL'
+            return ' ?\0'.includes(String.fromCharCode(slice[0] ?? 0x20)) ? null : 'не T/F/Y/N — стане NULL'
         case 'double':
-            return 'not a finite number — becomes NULL'
+            return 'не скінченне число — стане NULL'
         case 'memoText': case 'memoBinary': {
             const block = memoBlockOf(slice)
             if (block === 0) return null
-            if (!memo) return 'memo file (.fpt/.dbt) not uploaded — becomes NULL'
-            return memo.read(block) ? null : 'memo block missing from the memo file — becomes NULL'
+            if (!memo) return 'memo-файл (.fpt/.dbt) не завантажено — стане NULL'
+            return memo.read(block) ? null : 'блоку немає в memo-файлі — стане NULL'
         }
         default:
             return null
@@ -229,7 +230,7 @@ function rawDisplay(column: ColumnSpec, record: Buffer, decoder: TextDecoderLike
     if (slice === null) return 'NULL'
     switch (column.kind) {
         case 'memoText': case 'memoBinary':
-            return `memo block ${memoBlockOf(slice)}`
+            return `memo-блок ${memoBlockOf(slice)}`
         case 'binary': case 'datetime': case 'int32': case 'double': case 'currency':
             return `0x${slice.toString('hex')}`
         case 'text':
@@ -282,9 +283,9 @@ const isMemoKind = (kind: ValueKind): boolean => kind === 'memoText' || kind ===
 
 /** Why the encoding was guessed: no mark, a mark this reader does not know, or a mark the text contradicts. */
 const describeMark = (codePage: number): string =>
-    codePage === 0 ? 'no code page mark'
-        : encodingFromCodePage(codePage) ? `the code page mark says ${encodingFromCodePage(codePage)}, but the text is not`
-            : `unknown code page mark 0x${codePage.toString(16).toUpperCase()}`
+    codePage === 0 ? 'немає позначки кодової сторінки'
+        : encodingFromCodePage(codePage) ? `позначка кодової сторінки вказує ${encodingFromCodePage(codePage)}, але текст не в цьому кодуванні`
+            : `невідома позначка кодової сторінки 0x${codePage.toString(16).toUpperCase()}`
 
 const describeField = (f: DbfFieldDescriptor): string =>
     `${f.name} ${f.type}(${f.length}${f.decimalCount > 0 ? `,${f.decimalCount}` : ''})`
@@ -402,13 +403,13 @@ function fitRowSize(table: TableSpec, warnings: string[], indexed: ReadonlySet<C
         widened.push(c.column)
     }
 
-    const list = (names: string[]) => names.length > 6 ? `${names.slice(0, 6).join(', ')} and ${names.length - 6} more` : names.join(', ')
+    const list = (names: string[]) => names.length > 6 ? `${names.slice(0, 6).join(', ')} та ще ${names.length - 6}` : names.join(', ')
     if (toText.length > 0)
-        warnings.push(`${table.table}: the columns together exceed MySQL's 64 KB row limit — ${list(toText)} became TEXT`)
+        warnings.push(`${table.table}: стовпці разом перевищують ліміт рядка MySQL у 64 КБ — ${list(toText)} стали TEXT`)
     if (widened.length > 0)
-        warnings.push(`${table.table}: ${widened.length} short text column(s) widened to ${OFF_PAGE_VARCHAR} so a row fits InnoDB's 8 KB limit (${list(widened)}); values are unchanged`)
+        warnings.push(`${table.table}: ${widened.length} ${plural(widened.length, 'короткий текстовий стовпець розширено', 'короткі текстові стовпці розширено', 'коротких текстових стовпців розширено')} до ${OFF_PAGE_VARCHAR}, щоб рядок вміщався в ліміт InnoDB у 8 КБ (${list(widened)}); значення не змінюються`)
     if (total('inRow') > INNODB_ROW_TARGET)
-        warnings.push(`${table.table}: a row may still exceed InnoDB's 8 KB limit — exclude some columns or give wide ones a TEXT type`)
+        warnings.push(`${table.table}: рядок усе ще може перевищити ліміт InnoDB у 8 КБ — виключіть частину стовпців або задайте широким стовпцям тип TEXT`)
 }
 
 const primaryKeyOf = (table: TableSpec): ColumnSpec | undefined => active(table).find(c => c.key === 'PRI')
@@ -592,7 +593,7 @@ export class MysqlExportService {
         const reserve = (name: string | undefined, taken: Set<string>, what: string): string | null => {
             if (!name) return null
             if (taken.has(name)) {
-                warnings.push(`${what}: the name "${name}" is used twice — a suffix was added`)
+                warnings.push(`${what}: назву "${name}" вказано двічі — додано суфікс`)
                 return null
             }
             taken.add(name)
@@ -604,7 +605,7 @@ export class MysqlExportService {
 
         for (const [fileName, result] of session.files) {
             const source = session.sources.get(fileName)
-            if (!source) throw new NotFoundException(`Source bytes missing for ${fileName}`)
+            if (!source) throw new NotFoundException(`Немає вмісту файлу ${fileName}`)
 
             const tableOverride = overrides[fileName] ?? {}
             const columnOverrides = tableOverride.columns ?? {}
@@ -632,7 +633,7 @@ export class MysqlExportService {
                     family: mapping.family,
                     column: userColumnNames.get(field.name) ?? uniqueName(toIdentifier(field.name, 'column'), takenColumns),
                     note: isMemoKind(mapping.kind)
-                        ? source.memo ? `from ${source.memo.fileName}` : 'memo file (.fpt/.dbt) not uploaded — exported as NULL'
+                        ? source.memo ? `з ${source.memo.fileName}` : 'memo-файл (.fpt/.dbt) не завантажено — експортується як NULL'
                         : undefined,
                     excluded: columnOverride.exclude === true,
                     typeOverridden: columnOverride.type !== undefined,
@@ -646,7 +647,7 @@ export class MysqlExportService {
             const included = columns.filter(c => !c.excluded)
             const excluded = tableOverride.exclude === true || included.length === 0
             if (included.length === 0 && tableOverride.exclude !== true)
-                warnings.push(`${fileName}: no fields left to export — table left out`)
+                warnings.push(`${fileName}: не залишилося полів для експорту — таблицю пропущено`)
 
             // A primary key the user picked; null means "no primary key at all".
             const pk = tableOverride.primaryKey
@@ -657,21 +658,21 @@ export class MysqlExportService {
                     column.nullable = false
                     if (isCharacterType(column.mysqlType)) column.collation = KEY_COLLATION
                 } else {
-                    warnings.push(`${fileName}: primary key field ${pk} is not exported — table has no primary key`)
+                    warnings.push(`${fileName}: поле первинного ключа ${pk} не експортується — таблиця буде без первинного ключа`)
                 }
             }
 
             if (!excluded) {
                 if (skippedFields.length > 0)
-                    warnings.push(`${fileName}: fields with no MySQL equivalent are left out — ${skippedFields.join(', ')}`)
+                    warnings.push(`${fileName}: поля без відповідника в MySQL пропущено — ${skippedFields.join(', ')}`)
                 if (!memo && included.some(c => isMemoKind(c.kind)))
-                    warnings.push(`${fileName}: memo fields are exported as NULL — upload ${fileName.replace(/\.dbf$/i, '')}.FPT (or .DBT) together with the table to carry them over`)
+                    warnings.push(`${fileName}: memo-поля експортуються як NULL — завантажте ${fileName.replace(/\.dbf$/i, '')}.FPT (або .DBT) разом із таблицею, щоб перенести їх`)
                 if (result.encodingSource === 'detected' && included.some(c => c.kind === 'text'))
-                    warnings.push(`${fileName}: ${describeMark(result.header.codePage)} — encoding detected from the text as ${encoding}. If the preview looks wrong, pick the encoding on the table's tab.`)
+                    warnings.push(`${fileName}: ${describeMark(result.header.codePage)} — кодування визначено за текстом: ${encoding}. Якщо в перегляді літери неправильні, виберіть кодування на вкладці таблиці.`)
                 if (options.indexes && result.header.tableFlags.hasStructuralCdx && !result.index)
-                    warnings.push(`${fileName}: the table has a .CDX index file — upload ${fileName.replace(/\.dbf$/i, '')}.CDX together with the table to carry its indexes over`)
+                    warnings.push(`${fileName}: у таблиці є індексний файл .CDX — завантажте ${fileName.replace(/\.dbf$/i, '')}.CDX разом із таблицею, щоб перенести індекси`)
                 if (options.indexes && result.index?.error)
-                    warnings.push(`${result.index.fileName}: could not be read (${result.index.error}) — no indexes from it`)
+                    warnings.push(`${result.index.fileName}: не вдалося прочитати (${result.index.error}) — індекси з нього не беруться`)
             }
 
             tables.push({
@@ -734,7 +735,7 @@ export class MysqlExportService {
         if (options.writeMode === 'sync') {
             const keyless = tables.filter(t => !t.excluded && !primaryKeyOf(t)).map(t => t.table)
             if (keyless.length > 0)
-                warnings.push(`Sync: no primary key in ${keyless.join(', ')} — these tables are emptied and loaded again on every sync. Pick a primary key in the plan to update them row by row.`)
+                warnings.push(`Синхронізація: немає первинного ключа в ${keyless.join(', ')} — ці таблиці очищаються й завантажуються заново під час кожної синхронізації. Виберіть первинний ключ у плані, щоб оновлювати їх порядково.`)
         }
 
         const quality = this.assessQuality(tables, options)
@@ -758,8 +759,8 @@ export class MysqlExportService {
         }
         const exclusionOf = (file: string, field: string): string | null => {
             const end = resolve(file, field)
-            if (end?.table.excluded) return `${end.table.table} is excluded from the export`
-            if (end?.column.excluded) return `${end.table.table}.${end.column.column} is excluded from the export`
+            if (end?.table.excluded) return `${end.table.table} виключено з експорту`
+            if (end?.column.excluded) return `${end.table.table}.${end.column.column} виключено з експорту`
             return null
         }
 
@@ -794,7 +795,7 @@ export class MysqlExportService {
             const target = resolve(rel.targetFile, rel.targetField)
             if (!source || !target) {
                 const missing = !source ? `${rel.sourceFile}.${rel.sourceField}` : `${rel.targetFile}.${rel.targetField}`
-                skipRaw(rel, `field ${missing} does not exist or has no MySQL equivalent`)
+                skipRaw(rel, `поля ${missing} немає або воно не має відповідника в MySQL`)
                 continue
             }
             const exclusion = exclusionOf(rel.sourceFile, rel.sourceField) ?? exclusionOf(rel.targetFile, rel.targetField)
@@ -803,20 +804,20 @@ export class MysqlExportService {
                 continue
             }
             if (source.column === target.column) {
-                skipRaw(rel, 'a column cannot reference itself')
+                skipRaw(rel, 'стовпець не може посилатися сам на себе')
                 continue
             }
             if (rel.kind === 'auto_name' && GENERIC_FIELD_NAMES.has(rel.sourceField.toUpperCase())) {
-                skipRaw(rel, `"${rel.sourceField}" is too generic to imply a link by name alone — add it manually if the tables really are related`)
+                skipRaw(rel, `"${rel.sourceField}" — надто загальна назва, щоб лише за нею вгадувати зв'язок; додайте його вручну, якщо таблиці справді пов'язані`)
                 continue
             }
             if (!isKeyableType(source.column.mysqlType) || !isKeyableType(target.column.mysqlType)) {
-                skipRaw(rel, 'TEXT/BLOB columns cannot take part in a foreign key — use VARCHAR(n)')
+                skipRaw(rel, 'стовпці TEXT/BLOB не можуть входити до зовнішнього ключа — використайте VARCHAR(n)')
                 continue
             }
             if (source.column.family === null || source.column.family !== target.column.family ||
                 (source.column.family === 'date' && source.column.mysqlType !== target.column.mysqlType)) {
-                skipRaw(rel, `incompatible types: ${describeField(source.column.field)} vs ${describeField(target.column.field)}`)
+                skipRaw(rel, `несумісні типи: ${describeField(source.column.field)} і ${describeField(target.column.field)}`)
                 continue
             }
             candidates.push({ rel, source, target })
@@ -881,13 +882,13 @@ export class MysqlExportService {
                 if (!closest) {
                     foreignKeys.push({
                         ...linkBase(rel, directions[0]!.parent, directions[0]!.child), name: '', status: 'skip',
-                        reason: 'neither column holds unique values, so neither can be referenced',
+                        reason: 'жоден зі стовпців не містить унікальних значень, тож на жоден не можна посилатися',
                     })
                 } else {
                     const base = linkBase(rel, closest.parent, closest.child)
                     foreignKeys.push({
                         ...base, name: '', status: 'skip',
-                        reason: `${closest.orphans!.count} value(s) in ${base.childTable}.${base.childColumn} have no match in ${base.parentTable}.${base.parentColumn} (e.g. '${closest.orphans!.example}')`,
+                        reason: `значень у ${base.childTable}.${base.childColumn} без відповідника в ${base.parentTable}.${base.parentColumn}: ${closest.orphans!.count} (напр. '${closest.orphans!.example}')`,
                     })
                 }
                 continue
@@ -902,7 +903,7 @@ export class MysqlExportService {
             if (existing) {
                 foreignKeys.push({
                     ...base, name: '', status: 'skip',
-                    reason: `${base.childTable}.${base.childColumn} already references ${existing.parent.table.table}.${existing.parent.column.column}`,
+                    reason: `${base.childTable}.${base.childColumn} уже посилається на ${existing.parent.table.table}.${existing.parent.column.column}`,
                 })
                 continue
             }
@@ -946,7 +947,7 @@ export class MysqlExportService {
                 const i = foreignKeys.findIndex(fk => fk.name === a.name)
                 foreignKeys[i] = {
                     ...foreignKeys[i]!, name: '', status: 'skip',
-                    reason: `types differ: ${a.child.column.column} ${a.child.column.mysqlType} vs ${a.parent.column.column} ${a.parent.column.mysqlType} — give both the same type`,
+                    reason: `типи різняться: ${a.child.column.column} ${a.child.column.mysqlType} і ${a.parent.column.column} ${a.parent.column.mysqlType} — задайте обом однаковий тип`,
                 }
             }
             accepted = accepted.filter(a => !conflicting.has(a))
@@ -984,7 +985,7 @@ export class MysqlExportService {
                     if (isCharacterType(column.mysqlType)) column.collation = KEY_COLLATION
                     table.primaryTag = tag.name
                 } else {
-                    warnings.push(`${table.fileName}: candidate key ${tag.name} (${tag.expression}) has ${stats.hasNull ? 'empty' : 'repeated'} values among the live records — not used as the primary key`)
+                    warnings.push(`${table.fileName}: ключ-кандидат ${tag.name} (${tag.expression}) має ${stats.hasNull ? 'порожні' : 'повторювані'} значення серед невидалених записів — не використовується як первинний ключ`)
                 }
                 break
             }
@@ -999,15 +1000,15 @@ export class MysqlExportService {
         const unique = active(table).filter(c => c.key === 'UNI')
         // Column lists that already have an index in MySQL, with what that index is.
         const covered = new Map<string, string>()
-        if (pk) covered.set(quoteIdent(pk.column), 'the primary key')
-        for (const c of unique) covered.set(quoteIdent(c.column), `the unique key on ${c.column}`)
+        if (pk) covered.set(quoteIdent(pk.column), 'первинний ключ')
+        for (const c of unique) covered.set(quoteIdent(c.column), `унікальний ключ на ${c.column}`)
         const taken = new Set(unique.map(c => `uq_${c.column}`.slice(0, MAX_IDENTIFIER)))
 
         const out: IndexSpec[] = []
         let created = 0
         for (const tag of table.result.index?.tags ?? []) {
             if (tag.name === table.primaryTag) {
-                out.push({ tag, name: '', parts: pk ? [{ column: pk }] : [], status: 'primary', note: 'candidate key in FoxPro — used as the primary key' })
+                out.push({ tag, name: '', parts: pk ? [{ column: pk }] : [], status: 'primary', note: 'ключ-кандидат у FoxPro — використано як первинний ключ' })
                 continue
             }
             const skip = (note: string, parts: IndexSpec['parts'] = []) => out.push({ tag, name: '', parts, status: 'skip', note })
@@ -1016,11 +1017,11 @@ export class MysqlExportService {
             try {
                 parsed = indexParts(tag.expression, fieldNames)
             } catch (err) {
-                skip(`expression cannot be translated: ${err instanceof Error ? err.message : String(err)}`)
+                skip(`вираз не перетворюється для MySQL: ${err instanceof Error ? err.message : String(err)}`)
                 continue
             }
             if (parsed.length === 0) {
-                skip('the expression uses no fields (DELETED() or constants only)')
+                skip('вираз не використовує полів (лише DELETED() або константи)')
                 continue
             }
 
@@ -1028,9 +1029,9 @@ export class MysqlExportService {
             let problem: string | null = null
             for (const p of parsed) {
                 const column = table.columns.find(c => c.field.name === p.field)
-                if (!column) problem = `${p.field} has no MySQL column`
-                else if (column.excluded) problem = `${column.column} is excluded from the export`
-                else if (!isKeyableType(column.mysqlType)) problem = `${column.column} is ${column.mysqlType}, which cannot be indexed — use VARCHAR(n)`
+                if (!column) problem = `${p.field} не має стовпця в MySQL`
+                else if (column.excluded) problem = `${column.column} виключено з експорту`
+                else if (!isKeyableType(column.mysqlType)) problem = `${column.column} має тип ${column.mysqlType}, який не індексується — використайте VARCHAR(n)`
                 if (problem || !column) break
                 const length = sizedLength(column.mysqlType)
                 parts.push({ column, prefix: p.prefix && length !== null && p.prefix < length ? p.prefix : undefined })
@@ -1045,31 +1046,31 @@ export class MysqlExportService {
             }
             const bytes = parts.reduce((n, p) => n + keyBytes(p.column.mysqlType, p.prefix), 0)
             if (parts.length > MAX_KEY_PARTS) {
-                skip(`${parts.length} columns — MySQL allows ${MAX_KEY_PARTS} per index`, parts)
+                skip(`стовпців: ${parts.length} — MySQL дозволяє не більше ${MAX_KEY_PARTS} в одному індексі`, parts)
                 continue
             }
             if (bytes > MAX_KEY_BYTES) {
-                skip(`the key would take up to ${bytes} bytes, InnoDB allows ${MAX_KEY_BYTES}`, parts)
+                skip(`ключ займав би до ${bytes} ${plural(bytes, 'байта', 'байтів', 'байтів')}, InnoDB дозволяє ${MAX_KEY_BYTES}`, parts)
                 continue
             }
             const signature = parts.map(indexColumnSql).join(',')
             const same = covered.get(signature)
             if (same) {
-                skip(`same columns as ${same}`, parts)
+                skip(`ті самі стовпці, що й ${same}`, parts)
                 continue
             }
             if (created >= MAX_INDEXES) {
-                skip(`MySQL allows ${MAX_INDEXES} indexes per table`, parts)
+                skip(`MySQL дозволяє не більше ${MAX_INDEXES} індексів на таблицю`, parts)
                 continue
             }
 
             const name = uniqueName(toIdentifier(`ix_${tag.name}`, 'ix'), taken)
-            covered.set(signature, `index ${name}`)
+            covered.set(signature, `індекс ${name}`)
             created++
             const notes = [
-                tag.filter && `FOR ${tag.filter} is not carried over — MySQL indexes every row`,
-                tag.candidate && 'candidate key in FoxPro — a plain index here, the table has another primary key',
-                tag.unique && 'UNIQUE in FoxPro only skips repeated keys — a plain index here',
+                tag.filter && `FOR ${tag.filter} не переноситься — MySQL індексує всі рядки`,
+                tag.candidate && 'ключ-кандидат у FoxPro — тут звичайний індекс, бо в таблиці інший первинний ключ',
+                tag.unique && 'UNIQUE у FoxPro лише пропускає повтори ключа — тут звичайний індекс',
             ].filter(Boolean)
             out.push({ tag, name, parts, status: 'create', note: notes.length > 0 ? notes.join('; ') : undefined })
         }
@@ -1125,7 +1126,7 @@ export class MysqlExportService {
                 if (column.key !== null && !isKeyableType(column.mysqlType)) {
                     issues.set(`${table.table}\u0000${column.column}\u0000keyable`, {
                         fileName: table.fileName, table: table.table, dbfField: column.field.name, column: column.column,
-                        problem: `${column.mysqlType} cannot be a ${column.key === 'PRI' ? 'primary' : 'unique'} key — use VARCHAR(n)`,
+                        problem: `${column.mysqlType} не може бути ${column.key === 'PRI' ? 'первинним' : 'унікальним'} ключем — використайте VARCHAR(n)`,
                         effect: 'fail', count: table.rowCount, examples: [],
                     })
                 }
@@ -1147,14 +1148,14 @@ export class MysqlExportService {
                         if (value === null) {
                             const loss = lossReason(column, record, table.memo)
                             if (loss) report(table, target, column, loss, 'null', rawDisplay(column, record, table.decoder))
-                            if (keyed && !column.nullable) report(table, target, column, 'empty value in a NOT NULL primary key', 'fail', null)
+                            if (keyed && !column.nullable) report(table, target, column, 'порожнє значення в первинному ключі (NOT NULL)', 'fail', null)
                             continue
                         }
                         const misfit = typeProblem(value, column.kind, column.mysqlType)
-                        if (misfit) report(table, target, column, misfit, 'fail', isMemoKind(column.kind) || column.kind === 'binary' ? `${value.length / 2} bytes` : value)
+                        if (misfit) report(table, target, column, misfit, 'fail', isMemoKind(column.kind) || column.kind === 'binary' ? `${value.length / 2} ${plural(value.length / 2, 'байт', 'байти', 'байтів')}` : value)
                         const seen = keyed ? keySeen.get(column) : undefined
                         if (seen) {
-                            if (seen.has(value)) report(table, target, column, `duplicate value in a ${column.key === 'PRI' ? 'primary' : 'unique'} key`, 'fail', value)
+                            if (seen.has(value)) report(table, target, column, `повторюване значення в ${column.key === 'PRI' ? 'первинному' : 'унікальному'} ключі`, 'fail', value)
                             else seen.add(value)
                         }
                     }
@@ -1172,13 +1173,13 @@ export class MysqlExportService {
         const { options } = plan
         const tables = plan.tables.filter(t => !t.excluded)
 
-        yield { sql: `-- MySQL dump generated by dbf inspector\n` +
+        yield { sql: `-- Дамп MySQL, створений dbf inspector\n` +
             `-- ${new Date().toISOString()}\n` +
-            `-- Mode: ${MODE_DESCRIPTION[options.writeMode]}${options.writeMode === 'sync' && options.syncDeletes ? ', rows gone from the DBF are deleted' : ''}\n` +
-            `-- Tables: ${tables.map(t => `${t.table} (${t.fileName}, ${t.rowCount} rows)`).join(', ')}\n\n` }
-        for (const w of plan.warnings) yield { sql: `-- WARNING: ${w}\n` }
+            `-- Режим: ${MODE_DESCRIPTION[options.writeMode]}${options.writeMode === 'sync' && options.syncDeletes ? ', рядки, яких уже немає в DBF, видаляються' : ''}\n` +
+            `-- Таблиці: ${tables.map(t => `${t.table} (${t.fileName}, рядків: ${t.rowCount})`).join(', ')}\n\n` }
+        for (const w of plan.warnings) yield { sql: `-- ПОПЕРЕДЖЕННЯ: ${w}\n` }
         for (const q of plan.quality) {
-            yield { sql: `-- DATA ${q.effect === 'fail' ? 'ERROR' : 'LOSS'}: ${q.table}.${q.column}: ${q.problem} (${q.count} value(s))\n` }
+            yield { sql: `-- ${q.effect === 'fail' ? 'ПОМИЛКА ДАНИХ' : 'ВТРАТА ДАНИХ'}: ${q.table}.${q.column}: ${q.problem} (значень: ${q.count})\n` }
         }
         // Values are escaped with backslashes, which NO_BACKSLASH_ESCAPES would turn into literal text.
         yield { sql: '\nSET NAMES utf8mb4;\n' +
@@ -1209,7 +1210,7 @@ export class MysqlExportService {
             }
         }
 
-        if (plan.foreignKeys.length > 0) yield { sql: '-- Foreign keys\n', foreignKeys: true }
+        if (plan.foreignKeys.length > 0) yield { sql: '-- Зовнішні ключі\n', foreignKeys: true }
         for (const { name, child, parent } of plan.accepted) {
             const alter = `ALTER TABLE ${quoteIdent(child.table.table)} ADD CONSTRAINT ${quoteIdent(name)} ` +
                 `FOREIGN KEY (${quoteIdent(child.column.column)}) ` +
@@ -1221,7 +1222,7 @@ export class MysqlExportService {
         }
         for (const fk of plan.foreignKeys) {
             if (fk.status === 'skip')
-                yield { sql: `-- skipped: ${fk.childTable}.${fk.childColumn} -> ${fk.parentTable}.${fk.parentColumn}: ${fk.reason}\n` }
+                yield { sql: `-- пропущено: ${fk.childTable}.${fk.childColumn} -> ${fk.parentTable}.${fk.parentColumn}: ${fk.reason}\n` }
         }
 
         yield { sql: '\nSET FOREIGN_KEY_CHECKS = 1;\nSET SESSION sql_mode = @DBF_OLD_SQL_MODE;\n' }
@@ -1242,21 +1243,21 @@ export class MysqlExportService {
         }
         for (const ix of table.indexes) {
             if (ix.status === 'create')
-                lines.push(`  KEY ${quoteIdent(ix.name)} (${ix.parts.map(indexColumnSql).join(', ')}) COMMENT ${quoteString(`CDX tag ${ix.tag.name}: ${ix.tag.expression}`.slice(0, 1024))}`)
+                lines.push(`  KEY ${quoteIdent(ix.name)} (${ix.parts.map(indexColumnSql).join(', ')}) COMMENT ${quoteString(`Тег CDX ${ix.tag.name}: ${ix.tag.expression}`.slice(0, 1024))}`)
         }
 
-        return this.createSql(table.table, lines, `Imported from ${table.fileName}`, options)
+        return this.createSql(table.table, lines, `Імпортовано з ${table.fileName}`, options)
     }
 
     /** Same columns as the table, all nullable and without keys, plus the record number. */
     private createDeletedTableSql(table: TableSpec, options: MysqlExportOptions): string {
         const lines = [
-            `  ${quoteIdent(RECNO_COLUMN)} INT UNSIGNED NOT NULL COMMENT 'Record number in the DBF'`,
+            `  ${quoteIdent(RECNO_COLUMN)} INT UNSIGNED NOT NULL COMMENT 'Номер запису в DBF'`,
             ...active(table).map(c =>
                 `  ${quoteIdent(c.column)} ${c.mysqlType} NULL COMMENT ${quoteString(`DBF ${describeField(c.field)}`)}`),
             `  PRIMARY KEY (${quoteIdent(RECNO_COLUMN)})`,
         ]
-        return this.createSql(table.deletedTable!, lines, `Records marked deleted in ${table.fileName}`, options)
+        return this.createSql(table.deletedTable!, lines, `Записи, позначені видаленими в ${table.fileName}`, options)
     }
 
     private createSql(table: string, lines: readonly string[], comment: string, options: MysqlExportOptions): string {
@@ -1344,7 +1345,7 @@ export class MysqlExportService {
 }
 
 const MODE_DESCRIPTION: Readonly<Record<MysqlExportOptions['writeMode'], string>> = {
-    replace: 'replace (tables are dropped and created again)',
-    append: 'append (missing tables are created, rows are added)',
-    sync: 'sync (missing tables are created, new rows inserted, changed rows updated by primary key)',
+    replace: 'заміна (таблиці видаляються й створюються заново)',
+    append: 'дописування (відсутні таблиці створюються, рядки додаються)',
+    sync: 'синхронізація (відсутні таблиці створюються, нові рядки вставляються, змінені оновлюються за первинним ключем)',
 }
