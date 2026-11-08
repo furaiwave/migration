@@ -6,7 +6,7 @@ import type { NextFunction, Request, Response } from 'express';
 // The API takes MySQL passwords and connects wherever it is told, so only the local client may call it.
 // HOST / CLIENT_ORIGINS widen that on purpose, e.g. HOST=0.0.0.0 CLIENT_ORIGINS=http://10.0.0.5:5173
 const HOST = process.env.HOST ?? '127.0.0.1'
-const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173')
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:4173,http://127.0.0.1:4173')
   .split(',')
   .map(o => o.trim())
   .filter(Boolean)

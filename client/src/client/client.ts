@@ -10,7 +10,7 @@ import type {
     DbfFilePreview,
 } from "@/api/api.types";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3000'
+const API_BASE = (import.meta.env.VITE_API_BASE?.trim() || 'http://127.0.0.1:3000').replace(/\/+$/, '')
 
 export interface ApiRoutes {
     'POST /dbf/parse-multiple': {
@@ -97,10 +97,10 @@ export class ApiError extends Error {
     }
 }
 
-/** No answer from the backend at all (browsers word it "Failed to fetch" / "NetworkError"). */
+/** fetch failed: connection, browser policy, or a local upload read error. */
 export class BackendUnreachableError extends Error {
     constructor(readonly baseUrl: string, cause: unknown) {
-        super(`Немає зв'язку з бекендом (${baseUrl}). Запустіть його: npm run start:dev у папці migration-gateway — і спробуйте ще раз.`, { cause })
+        super(`Не вдалося виконати запит до ${baseUrl}. Причиною може бути з’єднання, блокування браузером або зміна вибраних файлів. Перевірте помилку запиту у F12 → Console та Network.`, { cause })
         this.name = 'BackendUnreachableError'
     }
 }
@@ -137,7 +137,7 @@ export async function apiRequest<R extends ApiRoute>(
     try {
         res = await fetch(url, init)
     } catch (err) {
-        // fetch rejects only when no response came back at all: the backend is down or unreachable.
+        // A rejected fetch does not prove the backend is down (e.g. ERR_UPLOAD_FILE_CHANGED).
         throw new BackendUnreachableError(API_BASE, err)
     }
 

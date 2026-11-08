@@ -16,8 +16,8 @@ export interface UploadedDbfFile{
 
 export type { DbfFilePreview } from './dbf-parse';
 
-/** Old databases often have 50–100 tables; the cap only guards against a mistaken drop of a whole disk. */
-export const MAX_TABLES = 500
+/** Maximum DBF tables per session; accompanying memo and index files are counted separately. */
+export const MAX_TABLES = 30
 
 export interface ParseMultipleResult{
     readonly sessionId: string

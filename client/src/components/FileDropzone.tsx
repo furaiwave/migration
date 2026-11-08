@@ -20,8 +20,8 @@ const INDEX_PATTERN = /\.cdx$/i
 
 const kindOf = (name: string): string =>
     TABLE_PATTERN.test(name) ? 'таблиця' : INDEX_PATTERN.test(name) ? 'індекс' : 'memo'
-// Matches the server's cap; old databases often have 50–100 tables.
-const MAX_TABLES = 500
+// Matches the server limit; memo and index files do not count as tables.
+const MAX_TABLES = 30
 
 const baseName = (name: string): string => name.replace(/\.[^.]+$/, '').toUpperCase()
 const extensionOf = (name: string): string => /\.[^.]+$/.exec(name)?.[0].toLowerCase() ?? '(без розширення)'
@@ -119,7 +119,12 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 role="button"
                 tabIndex={0}
                 onClick={() => inputRef.current?.click()}
-                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
+                onKeyDown={(e) => {
+                    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault()
+                        inputRef.current?.click()
+                    }
+                }}
                 onDragOver={(e) => {e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => { e.preventDefault(); setDragging(false); readDrop(e.dataTransfer); }}
@@ -137,17 +142,32 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                         Вкладені папки теж читаються, інші файли пропускаються. До {MAX_TABLES} таблиць; зв'язки між таблицями визначаються автоматично.
                     </p>
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => { e.stopPropagation(); folderRef.current?.click() }}
-                >
-                    <FolderOpen /> Вибрати папку
-                </Button>
-                <Input
+                <div className="flex flex-wrap justify-center gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}
+                    >
+                        <Upload /> Вибрати файли
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); folderRef.current?.click() }}
+                    >
+                        <FolderOpen /> Вибрати папку
+                    </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    «Вибрати файли» показує файли .dbf, .fpt, .dbt та .cdx. У вікні «Вибрати папку» видно лише папки — файли з них буде додано автоматично.
+                </p>
+                <input
                     ref={inputRef}
                     type="file"
                     accept=".dbf,.fpt,.dbt,.cdx"
+                    aria-label="Вибрати файли бази даних"
                     multiple
                     className="hidden"
                     onClick={(e) => e.stopPropagation()}
