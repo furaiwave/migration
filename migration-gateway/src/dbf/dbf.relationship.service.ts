@@ -5,25 +5,40 @@ import type { DbfRelationship, AutoNameRelationship, AutoFkRelationship, DbfRela
 import { relationshipId } from "../types/dbf-relationship.types";
 import type { DbfFieldDescriptor } from "../types/dbf-field.types";
 
-const FK_SUFFIXES = ['_ID', '_CODE', '_KEY', 'ID', 'KEY'] as const
+const KEY_MARKERS = ['code', 'key', 'kod', 'nom', 'id'] as const
+
+// ТАБ_НОМ and TAB_NOM name the same thing.
+function normalizeName(s: string): string {
+    return transliterate(s).replace(/[_\s-]/g, '')
+}
 
 function extractFkTarget(fieldName: string): string | null {
-    const upper = fieldName.toUpperCase()
-    for(const suffix of FK_SUFFIXES){
-        if(upper.endsWith(suffix) && upper.length > suffix.length)
-            return upper.slice(0, upper.length - suffix.length)
+    const name = normalizeName(fieldName)
+    for (const marker of KEY_MARKERS) {
+        if (name.length <= marker.length) continue
+        if (name.endsWith(marker)) return name.slice(0, -marker.length)
+        if (name.startsWith(marker)) return name.slice(marker.length)
     }
     return null
 }
 
-// Memo, picture and system fields (_NullFlags) never hold keys; two NOTES fields are not a link.
+// NOM/TABNOM/INDKOD remain candidates even when shared by many tables.
+// MySQL export still verifies uniqueness and every referenced value.
+function isIdentifierName(name: string): boolean {
+    return KEY_MARKERS.includes(normalizeName(name) as typeof KEY_MARKERS[number]) ||
+        extractFkTarget(name) !== null
+}
+
 const UNLINKABLE_TYPES: ReadonlySet<string> = new Set(['M', 'G', 'P', '0'])
 const linkable = (field: DbfFieldDescriptor): boolean => !field.system && !UNLINKABLE_TYPES.has(field.type)
 
-// ТАБ_НОМ and TAB_NOM name the same thing: compare transliterated, without separators.
-function normalizeName(s: string): string {
-    return transliterate(s).replace(/[_\s-]/g, '')
+function fieldFamily(field: DbfFieldDescriptor): string {
+    if (field.type === 'C' || field.type === 'V') return 'text'
+    if (field.type === 'I' || field.type === '+' || (field.type === 'N' && field.decimalCount === 0)) return 'integer'
+    return field.type
 }
+
+const compatible = (a: DbfFieldDescriptor, b: DbfFieldDescriptor): boolean => a.type === b.type || fieldFamily(a) === fieldFamily(b)
 
 function relKey(r: {
     sourceFile: string, sourceField: string
@@ -32,10 +47,7 @@ function relKey(r: {
     return `${r.sourceFile}::${r.sourceField}::${r.targetFile}::${r.targetField}`
 }
 
-/**
- * A field shared by this many tables or more (PRIM, SUMMA, DATE_IZM…) says nothing about how they relate;
- * linking every pair would produce n·(n−1)/2 links. Real keys like CLIENT_ID are still found by suffix.
- */
+// Repeated descriptive fields (PRIM, SUMMA, DATE_IZM...) do not identify relationships.
 const MAX_TABLES_PER_NAME_MATCH = 4
 
 function reversed<T extends { sourceFile: string, sourceField: string, targetFile: string, targetField: string }>(r: T): T {
@@ -44,44 +56,33 @@ function reversed<T extends { sourceFile: string, sourceField: string, targetFil
 
 @Injectable()
 export class DbfRelationshipService {
-    private detectByname(files: ParsedFileMap): AutoNameRelationship[]{
+    private detectByName(files: ParsedFileMap): AutoNameRelationship[] {
         const results: AutoNameRelationship[] = []
         const entries = [...files.entries()]
-
-        // How many tables carry each (normalized name, type); too common names are not matched at all.
         const spread = new Map<string, number>()
-        for(const [, result] of entries){
-            for(const key of new Set(result.header.fields.map(f => `${normalizeName(f.name)}:${f.type}`)))
-                spread.set(key, (spread.get(key) ?? 0) + 1)
+        for (const [, result] of entries) {
+            const keys = result.header.fields.filter(linkable).map(f => `${normalizeName(f.name)}:${fieldFamily(f)}`)
+            for (const key of new Set(keys)) spread.set(key, (spread.get(key) ?? 0) + 1)
         }
-        const tooCommon = (name: string, type: string) => (spread.get(`${normalizeName(name)}:${type}`) ?? 0) > MAX_TABLES_PER_NAME_MATCH
 
-        for(let i = 0; i < entries.length; i++){
-            for(let j = i + 1; j < entries.length; j++){
-                const[fileA, resultA] = entries[i]!
-                const[fileB, resultB] = entries[j]!
-
-                for(const fa of resultA.header.fields){
-                    if(!linkable(fa) || tooCommon(fa.name, fa.type)) continue
-                    for(const fb of resultB.header.fields){
-                        if(!linkable(fb)) continue
-                        if(fa.name === fb.name && fa.type === fb.type){
-                            results.push({
-                                kind: 'auto_name', confidence: 'certain',
-                                sourceFile: fileA, sourceField: fa.name,
-                                targetFile: fileB, targetField: fb.name,
-                                matchedOn: 'exact_name',
-                            })
-                        } else if (
-                            normalizeName(fa.name) === normalizeName(fb.name) && fa.type === fb.type
-                        ) {
-                            results.push({
-                                kind: 'auto_name', confidence: 'high',
-                                sourceFile: fileA, sourceField: fa.name,
-                                targetFile: fileB, targetField: fb.name,
-                                matchedOn: 'normalized_name'
-                            })
-                        }
+        for (let i = 0; i < entries.length; i++) {
+            for (let j = i + 1; j < entries.length; j++) {
+                const [fileA, resultA] = entries[i]!
+                const [fileB, resultB] = entries[j]!
+                for (const fa of resultA.header.fields) {
+                    if (!linkable(fa)) continue
+                    if (!isIdentifierName(fa.name) &&
+                        (spread.get(`${normalizeName(fa.name)}:${fieldFamily(fa)}`) ?? 0) > MAX_TABLES_PER_NAME_MATCH) continue
+                    for (const fb of resultB.header.fields) {
+                        if (!linkable(fb) || !compatible(fa, fb) || normalizeName(fa.name) !== normalizeName(fb.name)) continue
+                        const exact = fa.name === fb.name
+                        results.push({
+                            kind: 'auto_name',
+                            confidence: exact && fa.type === fb.type ? 'certain' : 'high',
+                            sourceFile: fileA, sourceField: fa.name,
+                            targetFile: fileB, targetField: fb.name,
+                            matchedOn: exact ? 'exact_name' : 'normalized_name',
+                        })
                     }
                 }
             }
@@ -89,60 +90,54 @@ export class DbfRelationshipService {
         return results
     }
 
-    private detectByFkSuffix(files: ParsedFileMap): AutoFkRelationship[] {
+    private detectByKeyName(files: ParsedFileMap): AutoFkRelationship[] {
         const results: AutoFkRelationship[] = []
-        const entries = [...files.entries()]
-
-        const lookup = new Map<string, FileName>()
-        for(const[fileName] of entries){
-            const base = fileName.replace(/\.dbf$/i, '').toUpperCase()
-            lookup.set(base, fileName)
-            // Plurals: CLIENTS → CLIENT, ОТДЕЛЫ → ОТДЕЛ, СОТРУДНИКИ → СОТРУДНИК
-            if(/[SЫИ]$/.test(base)) lookup.set(base.slice(0, -1), fileName)
+        const exact = new Map<string, Set<FileName>>()
+        const singular = new Map<string, Set<FileName>>()
+        const add = (lookup: Map<string, Set<FileName>>, name: string, file: FileName) => {
+            const matches = lookup.get(name) ?? new Set<FileName>()
+            matches.add(file)
+            lookup.set(name, matches)
+        }
+        for (const [fileName] of files) {
+            const base = fileName.replace(/\.dbf$/i, '')
+            add(exact, normalizeName(base), fileName)
+            // Singular aliases never replace an exact table name or resolve an ambiguity.
+            if (/[sыиі]$/i.test(base)) add(singular, normalizeName(base.slice(0, -1)), fileName)
         }
 
-        for(const[sourceFile, result] of entries){
-            for(const field of result.header.fields){
-                if(!linkable(field)) continue
+        for (const [sourceFile, result] of files) {
+            for (const field of result.header.fields) {
+                if (!linkable(field)) continue
                 const targetName = extractFkTarget(field.name)
-                if(!targetName) continue
-
-                const targetFile = lookup.get(targetName) ?? lookup.get(targetName + 'S') ?? null
-
-                if(!targetFile || targetFile === sourceFile) continue
-                const targetResult = files.get(targetFile)
-                if(!targetResult) continue
-
-                // CLIENT_ID points at CLIENTS.CLIENT_ID when that exists, otherwise at CLIENTS.ID / CODE / KEY.
-                const sameName = targetResult.header.fields.find(f => f.name === field.name)
-                const generic = targetResult.header.fields.find(f => f.name === 'ID' || f.name === 'CODE' || f.name === 'KEY')
-                const targetField = sameName ?? generic
-                // No candidate column: claiming a link to a field that does not exist only misleads.
-                if(!targetField) continue
+                if (!targetName) continue
+                const matches = exact.get(targetName) ?? singular.get(targetName)
+                if (!matches || matches.size !== 1) continue
+                const targetFile = [...matches][0]!
+                if (targetFile === sourceFile) continue
+                const fields = files.get(targetFile)!.header.fields.filter(f => linkable(f) && compatible(field, f))
+                const sameName = fields.find(f => normalizeName(f.name) === normalizeName(field.name))
+                const equivalent = fields.find(f => extractFkTarget(f.name) === targetName)
+                const generic = ['id', 'code', 'kod', 'key', 'nom']
+                    .map(name => fields.find(f => normalizeName(f.name) === name)).find(f => f !== undefined)
+                const targetField = sameName ?? equivalent ?? generic
+                if (!targetField) continue
 
                 results.push({
                     kind: 'auto_fk',
-                    confidence: targetField === sameName || targetField.name === 'ID' ? 'high' : 'medium',
-                    sourceFile,
-                    sourceField: field.name,
-                    targetFile,
-                    targetField: targetField.name,
-                    inferredFrom: field.name
+                    confidence: targetField === sameName || targetField === equivalent || normalizeName(targetField.name) === 'id' ? 'high' : 'medium',
+                    sourceFile, sourceField: field.name,
+                    targetFile, targetField: targetField.name,
+                    inferredFrom: field.name,
                 })
             }
         }
-
-        return results;
+        return results
     }
 
-    private dudeplicate(
-        autoName: AutoNameRelationship[],
-        autoFk: AutoFkRelationship[],
-    ): DbfRelationship[] {
-        // A name match is the same link as a suffix-inferred key in either direction; keep the key, it has the direction.
+    private deduplicate(autoName: AutoNameRelationship[], autoFk: AutoFkRelationship[]): DbfRelationship[] {
         const fkKeys = new Set(autoFk.flatMap(r => [relKey(r), relKey(reversed(r))]))
-        const filtered = autoName.filter(r => !fkKeys.has(relKey(r)))
-        return [...filtered, ...autoFk]
+        return [...autoName.filter(r => !fkKeys.has(relKey(r))), ...autoFk]
     }
 
     buildGraph(
@@ -150,8 +145,8 @@ export class DbfRelationshipService {
         manualRels: readonly DbfRelationship[] = [],
         disabled: ReadonlySet<string> = new Set(),
     ): DbfRelationshipGraph {
-        const autoFk = this.detectByFkSuffix(files)
-        const auto = this.dudeplicate(this.detectByname(files), autoFk)
+        const autoFk = this.detectByKeyName(files)
+        const auto = this.deduplicate(this.detectByName(files), autoFk)
         const relationships: readonly GraphRelationship[] = [...auto, ...manualRels].map(r => {
             const id = relationshipId(r)
             return { ...r, id, disabled: disabled.has(id) }
