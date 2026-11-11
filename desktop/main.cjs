@@ -30,6 +30,7 @@ if (!app.requestSingleInstanceLock()) {
             minWidth: 900,
             minHeight: 600,
             title: 'dbf inspector',
+            icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
             show: false,
             autoHideMenuBar: true,
             webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },

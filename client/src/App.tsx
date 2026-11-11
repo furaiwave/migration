@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Database, Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { FileDropzone } from '@/components/FileDropzone';
@@ -87,7 +87,7 @@ export default function App() {
       <header className="border-b">
         <div className="flex w-full items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <Database className="size-5 text-primary" />
+            <img src="/favicon.svg" alt="" className="size-6" />
             <div>
               <h1 className="text-sm font-semibold tracking-tight">dbf inspector</h1>
               <p className="text-xs text-muted-foreground">Перегляд старих таблиць .dbf перед перенесенням у MySQL або MongoDB</p>
