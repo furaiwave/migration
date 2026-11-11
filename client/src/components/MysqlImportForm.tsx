@@ -8,6 +8,7 @@ import { cancelImport, fetchImportStatus, useMysqlImport, useMysqlTestConnection
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { plural } from "@/lib/plural";
+import { formatDuration } from "@/lib/format";
 import type { MysqlConnectionInput, MysqlExportOptions, MysqlImportResult, MysqlImportStatus, MysqlWriteMode } from "@/api/api.types";
 
 const DEFAULT_CONNECTION: MysqlConnectionInput = {
@@ -161,12 +162,7 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
     )
 }
 
-const formatDuration = (ms: number): string => {
-    const s = Math.round(ms / 1000)
-    return s < 60 ? `${s} с` : `${Math.floor(s / 60)} хв ${String(s % 60).padStart(2, '0')} с`
-}
-
-function ProgressBar({ value, max }: { value: number; max: number }) {
+export function ProgressBar({ value, max }: { value: number; max: number }) {
     const percent = max > 0 ? Math.min(100, (value / max) * 100) : 0
     return (
         <div className="h-2 w-full overflow-hidden bg-muted" role="progressbar" aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>

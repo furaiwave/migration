@@ -1,0 +1,48 @@
+{
+  "name": "dbf-inspector",
+  "productName": "dbf inspector",
+  "version": "0.1.0",
+  "description": "Перегляд старих таблиць .dbf і перенесення у MySQL або MongoDB",
+  "author": "furaiwave",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/start.mjs",
+    "dist": "node scripts/build.mjs && electron-builder --win"
+  },
+  "build": {
+    "appId": "dev.furaiwave.dbf-inspector",
+    "productName": "dbf inspector",
+    "directories": {
+      "output": "out"
+    },
+    "files": [
+      "main.cjs",
+      "app/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "dbf inspector",
+      "artifactName": "dbf-inspector-setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "dbf-inspector-${version}-portable.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.3.0",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2"
+  }
+}

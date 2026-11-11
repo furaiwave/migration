@@ -8,9 +8,17 @@ import type {
     MysqlConnectionInfo,
     MysqlImportStatus,
     DbfFilePreview,
+    MongoExportPlan,
+    MongoConnectionInput,
+    MongoConnectionInfo,
+    MongoImportStatus,
 } from "@/api/api.types";
 
+// VITE_API_BASE=/ : the API is served from the page's own address (the desktop app, see desktop/).
 const API_BASE = (import.meta.env.VITE_API_BASE?.trim() || 'http://127.0.0.1:3000').replace(/\/+$/, '')
+
+/** The client runs inside the packaged app, which starts the API itself. */
+export const BUNDLED_APP = API_BASE === ''
 
 export interface ApiRoutes {
     'POST /dbf/parse-multiple': {
@@ -65,6 +73,30 @@ export interface ApiRoutes {
     'DELETE /dbf/session/:id/relationship/:relId': {
         body: never
         response: DbfRelationshipGraph
+    }
+    'POST /dbf/session/:id/mongo/plan': {
+        body: MysqlExportOptions
+        response: MongoExportPlan
+    }
+    'POST /dbf/session/:id/mongo/export': {
+        body: MysqlExportOptions
+        response: Blob
+    }
+    'POST /dbf/mongo/test-connection': {
+        body: MongoConnectionInput
+        response: MongoConnectionInfo
+    }
+    'POST /dbf/session/:id/mongo/import': {
+        body: MysqlExportOptions & MongoConnectionInput
+        response: MongoImportStatus
+    }
+    'GET /dbf/mongo/import/:jobId': {
+        body: never
+        response: MongoImportStatus
+    }
+    'DELETE /dbf/mongo/import/:jobId': {
+        body: never
+        response: MongoImportStatus
     }
     'DELETE /dbf/session/:id': {
         body: never
@@ -138,7 +170,7 @@ export async function apiRequest<R extends ApiRoute>(
         res = await fetch(url, init)
     } catch (err) {
         // A rejected fetch does not prove the backend is down (e.g. ERR_UPLOAD_FILE_CHANGED).
-        throw new BackendUnreachableError(API_BASE, err)
+        throw new BackendUnreachableError(API_BASE || window.location.origin, err)
     }
 
     if(!res.ok){

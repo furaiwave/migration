@@ -15,6 +15,7 @@ import type {
     MysqlForeignKeyPlan,
     MysqlIndexPlan,
     MysqlPlanOverrides,
+    MysqlQualityIssue,
     MysqlTableOverride,
     MysqlTablePlan,
 } from "@/api/api.types";
@@ -57,7 +58,12 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
                 {MYSQL_TYPE_SUGGESTIONS.map((t) => <option key={t} value={t} />)}
             </datalist>
 
-            <QualityTable plan={plan} dataChecked={dataChecked} />
+            <QualityTable
+                engine="MySQL"
+                quality={plan.quality}
+                rows={plan.tables.filter((t) => !t.excluded).reduce((n, t) => n + t.rowCount, 0)}
+                dataChecked={dataChecked}
+            />
 
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -166,21 +172,29 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
 
 // ---------------------------------------------------------------- data quality
 
-function QualityTable({ plan, dataChecked }: { plan: MysqlExportPlan; dataChecked: boolean }) {
-    const failing = plan.quality.filter((q) => q.effect === 'fail').length
-    const rows = plan.tables.filter((t) => !t.excluded).reduce((n, t) => n + t.rowCount, 0)
+interface QualityTableProps {
+    readonly engine: 'MySQL' | 'MongoDB'
+    readonly quality: readonly MysqlQualityIssue[]
+    /** Live records that go out, for the all-clear line. */
+    readonly rows: number
+    readonly dataChecked: boolean
+}
+
+export function QualityTable({ engine, quality, rows, dataChecked }: QualityTableProps) {
+    const failing = quality.filter((q) => q.effect === 'fail').length
+    const mysql = engine === 'MySQL'
 
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
                 Якість даних
                 <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    кожен запис звірено з типами MySQL ще до відправлення
+                    {mysql ? 'кожен запис звірено з типами MySQL ще до відправлення' : 'кожен запис прочитано так, як він піде в MongoDB, ще до відправлення'}
                 </span>
             </h3>
             {!dataChecked ? (
                 <p className="text-xs text-muted-foreground">Дані не входять в експорт, тому значення не перевірялися.</p>
-            ) : plan.quality.length === 0 ? (
+            ) : quality.length === 0 ? (
                 <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="size-3.5" />
                     Проблем немає — усі рядки ({rows.toLocaleString()}) надійдуть без змін.
@@ -189,15 +203,15 @@ function QualityTable({ plan, dataChecked }: { plan: MysqlExportPlan; dataChecke
                 <>
                     {failing > 0 && (
                         <p className="text-xs text-destructive">
-                            Проблем, через які MySQL відхилить рядки: {failing} — імпорт заблоковано, доки їх не виправлено
-                            (змініть тип стовпця, виберіть інший первинний ключ або виключіть поле нижче).
+                            Проблем, через які {engine} відхилить {mysql ? 'рядки' : 'документи'}: {failing} — імпорт заблоковано, доки їх не виправлено
+                            ({mysql ? 'змініть тип стовпця, виберіть' : 'виберіть'} інший первинний ключ або виключіть поле нижче).
                         </p>
                     )}
                     <Table containerClassName="max-h-[50vh]">
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Наслідок</TableHead>
-                                <TableHead>Стовпець</TableHead>
+                                <TableHead>{mysql ? 'Стовпець' : 'Поле'}</TableHead>
                                 <TableHead>Поле DBF</TableHead>
                                 <TableHead>Проблема</TableHead>
                                 <TableHead className="text-right">Значень</TableHead>
@@ -205,7 +219,7 @@ function QualityTable({ plan, dataChecked }: { plan: MysqlExportPlan; dataChecke
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {plan.quality.map((q) => (
+                            {quality.map((q) => (
                                 <TableRow key={`${q.table}.${q.column}.${q.problem}`}>
                                     <TableCell>
                                         {q.effect === 'fail'
@@ -323,7 +337,7 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
 // ---------------------------------------------------------------- editing
 
 /** Text input that applies on Enter / blur, reverts on Escape, and refuses invalid input. */
-function EditableCell({
+export function EditableCell({
     value,
     placeholder,
     validate,

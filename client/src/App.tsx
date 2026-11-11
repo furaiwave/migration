@@ -13,9 +13,9 @@ import type {
   DbfRelationshipGraph,
   AddManualRelationshipInput,
 } from '@/api/api.types';
-import { MysqlExportPanel } from '@/components/MysqlExportPanel';
+import { ExportPanel } from '@/components/ExportPanel';
 import { errorMessage } from '@/lib/errors';
-import { apiRequest, ApiError } from '@/client/client';
+import { apiRequest, ApiError, BUNDLED_APP } from '@/client/client';
 import { lastSession, rememberSession } from '@/lib/lastSession';
 
 export default function App() {
@@ -90,7 +90,7 @@ export default function App() {
             <Database className="size-5 text-primary" />
             <div>
               <h1 className="text-sm font-semibold tracking-tight">dbf inspector</h1>
-              <p className="text-xs text-muted-foreground">Перегляд старих таблиць .dbf перед перенесенням у MySQL</p>
+              <p className="text-xs text-muted-foreground">Перегляд старих таблиць .dbf перед перенесенням у MySQL або MongoDB</p>
             </div>
           </div>
           {session && (
@@ -112,7 +112,11 @@ export default function App() {
               Не вдалося відкрити останню сесію: {restoreError}
             </p>
             <p className="text-xs text-muted-foreground">
-              Сесія зберігається на сервері добу. Запустіть бекенд (<code className="bg-muted px-1">npm run start:dev</code> у migration-gateway) і спробуйте ще раз.
+              {BUNDLED_APP ? (
+                <>Сесія зберігається на сервері добу. Перезапустіть програму dbf inspector і спробуйте ще раз.</>
+              ) : (
+                <>Сесія зберігається на сервері добу. Запустіть бекенд (<code className="bg-muted px-1">npm run start:dev</code> у migration-gateway) і спробуйте ще раз.</>
+              )}
             </p>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => { setRestoring(true); setRestoreAttempt((n) => n + 1); }}>
@@ -143,7 +147,7 @@ export default function App() {
               />
             )}
             <Separator />
-            {graph && <MysqlExportPanel sessionId={session.sessionId} graph={graph} />}
+            {graph && <ExportPanel sessionId={session.sessionId} graph={graph} />}
             <Separator />
             <FileTabs sessionId={session.sessionId} files={session.files} onFileChange={handleFileChange} />
           </>

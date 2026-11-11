@@ -10,6 +10,9 @@ import { DbfSessionService } from './dbf-session.service';
 import { DbfRelationshipService } from './dbf.relationship.service';
 import { MysqlExportService } from './mysql-export.service';
 import { MysqlImportService } from './mysql-import.service';
+import { MongoExportService } from './mongo-export.service';
+import { MongoImportService } from './mongo-import.service';
+import type { MongoConnectionInfo, MongoExportPlan, MongoImportStatus } from '../types/mongo-export.types';
 import type { DbfRelationship, DbfRelationshipGraph } from '../types/dbf-relationship.types';
 import type { DbfSession } from '../types/dbf-session.types';
 import type { MysqlConnectionInfo, MysqlConnectionInput, MysqlExportOptions, MysqlExportPlan, MysqlImportStatus, MysqlWriteMode } from '../types/mysql-export.types';
@@ -76,6 +79,18 @@ class MysqlImportDto extends MysqlExportDto {
     @IsOptional() @IsString() password?: string
 }
 
+// mongodb:// or mongodb+srv:// — the driver checks the rest and says what is wrong.
+const MONGO_URI = /^mongodb(\+srv)?:\/\/\S+$/
+const MONGO_URI_MESSAGE = 'Рядок підключення має починатися з mongodb:// або mongodb+srv://'
+
+class MongoConnectionDto {
+    @IsString() @Matches(MONGO_URI, { message: MONGO_URI_MESSAGE }) uri!: string
+}
+
+class MongoImportDto extends MysqlExportDto {
+    @IsString() @Matches(MONGO_URI, { message: MONGO_URI_MESSAGE }) uri!: string
+}
+
 function toConnection(dto: MysqlConnectionDto): MysqlConnectionInput {
     return { host: dto.host, port: dto.port, user: dto.user, password: dto.password ?? '' }
 }
@@ -102,6 +117,8 @@ export class DbfController {
         private readonly relationshipService: DbfRelationshipService,
         private readonly mysqlExportService: MysqlExportService,
         private readonly mysqlImportService: MysqlImportService,
+        private readonly mongoExportService: MongoExportService,
+        private readonly mongoImportService: MongoImportService,
     ) {}
 
     @Post('parse-multiple')
@@ -234,6 +251,49 @@ export class DbfController {
     @HttpCode(HttpStatus.OK)
     cancelMysqlImport(@Param('jobId') jobId: string): MysqlImportStatus {
         return this.mysqlImportService.cancel(jobId)
+    }
+
+    @Post('session/:id/mongo/plan')
+    @HttpCode(HttpStatus.OK)
+    mongoPlan(@Param('id') id: string, @Body() dto: MysqlExportDto): MongoExportPlan {
+        const session = this.sessionService.getSession(toSessionId(id))
+        return this.mongoExportService.plan(session, this.activeRelationships(session), toExportOptions(dto))
+    }
+
+    @Post('session/:id/mongo/export')
+    @HttpCode(HttpStatus.OK)
+    mongoExport(@Param('id') id: string, @Body() dto: MysqlExportDto): StreamableFile {
+        const session = this.sessionService.getSession(toSessionId(id))
+        const options = toExportOptions(dto)
+        const stream = this.mongoExportService.exportScript(session, this.activeRelationships(session), options)
+        return new StreamableFile(stream, {
+            type: 'text/javascript; charset=utf-8',
+            disposition: `attachment; filename="${options.database ?? 'dbf_export'}.js"`,
+        })
+    }
+
+    @Post('mongo/test-connection')
+    @HttpCode(HttpStatus.OK)
+    mongoTestConnection(@Body() dto: MongoConnectionDto): Promise<MongoConnectionInfo> {
+        return this.mongoImportService.testConnection({ uri: dto.uri })
+    }
+
+    @Post('session/:id/mongo/import')
+    @HttpCode(HttpStatus.OK)
+    mongoImport(@Param('id') id: string, @Body() dto: MongoImportDto): Promise<MongoImportStatus> {
+        const session = this.sessionService.getSession(toSessionId(id))
+        return this.mongoImportService.startImport(session, this.activeRelationships(session), toExportOptions(dto), { uri: dto.uri })
+    }
+
+    @Get('mongo/import/:jobId')
+    mongoImportStatus(@Param('jobId') jobId: string): MongoImportStatus {
+        return this.mongoImportService.getStatus(jobId)
+    }
+
+    @Delete('mongo/import/:jobId')
+    @HttpCode(HttpStatus.OK)
+    cancelMongoImport(@Param('jobId') jobId: string): MongoImportStatus {
+        return this.mongoImportService.cancel(jobId)
     }
 
     @Delete('session/:id')

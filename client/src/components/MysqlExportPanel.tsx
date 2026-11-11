@@ -103,13 +103,6 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
 
     return (
         <section className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-sm font-semibold">Експорт у MySQL</h2>
-                <p className="text-xs text-muted-foreground">
-                    Створює дамп .sql: інструкції CREATE TABLE, INSERT і FOREIGN KEY, utf8mb4.
-                </p>
-            </div>
-
             <div className="flex flex-col gap-4 border p-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1.5">

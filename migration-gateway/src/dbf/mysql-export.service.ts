@@ -39,6 +39,17 @@ const MAX_INDEXES = 64
 const RECNO_COLUMN = '_dbf_recno'
 const SYNC_KEYS_TABLE = '_dbf_sync_keys'
 
+type PlanTarget = 'mysql' | 'mongo'
+
+// MongoDB refuses documents over 16 MB; a single value close to that cannot fit with the rest.
+const DOCUMENT_VALUE_LIMIT = 16 * 1024 * 1024 - 64 * 1024
+
+/** Why a value cannot go into a MongoDB document, or null. */
+function documentProblem(value: string, kind: ValueKind): string | null {
+    const bytes = kind === 'binary' || kind === 'memoBinary' ? value.length / 2 : Buffer.byteLength(value, 'utf8')
+    return bytes > DOCUMENT_VALUE_LIMIT ? 'значення не вміщується в документ MongoDB (16 МБ)' : null
+}
+
 /** Columns may only reference each other within the same family. */
 type KeyFamily = 'numeric' | 'text' | 'date' | null
 
@@ -459,6 +470,50 @@ const GENERIC_FIELD_NAMES: ReadonlySet<string> = new Set([
     'ID', 'CODE', 'KOD', 'KEY', 'NUM', 'NO', 'NR', 'N', 'NAME', 'NAIM', 'TYPE', 'TIP', 'DATE', 'DATA',
 ])
 
+/** A column as a document database sees it: a name and how its values decode. */
+export interface DocumentColumn {
+    readonly field: DbfFieldDescriptor
+    readonly name: string
+    readonly kind: ValueKind
+    readonly key: MysqlColumnKey
+    readonly excluded: boolean
+    readonly note?: string
+}
+
+/** One planned table for a document database, with its records decoded on demand. */
+export interface DocumentTable {
+    readonly fileName: FileName
+    readonly name: string
+    readonly deletedName: string | null
+    readonly rowCount: number
+    readonly deletedCount: number
+    readonly encoding: string
+    readonly memoFile: string | null
+    readonly indexFile: string | null
+    readonly excluded: boolean
+    readonly skippedFields: readonly string[]
+    /** .CDX candidate tag that became the primary key. */
+    readonly primaryTag: string | null
+    readonly tags: readonly CdxTag[]
+    readonly dbfFieldNames: readonly string[]
+    /** Every mappable field, excluded ones included. */
+    readonly columns: readonly DocumentColumn[]
+    /** Canonical text per exported column (in `columns` order, excluded ones skipped), null for NULL. */
+    readonly records: (set: RecordSet) => Iterable<{ readonly recno: number; readonly values: readonly (string | null)[] }>
+}
+
+export interface DocumentSource {
+    readonly tables: readonly DocumentTable[]
+    /** Links whose data was checked: the parent column is unique and holds every child value. */
+    readonly links: readonly {
+        readonly child: { readonly table: DocumentTable; readonly column: string }
+        readonly parent: { readonly table: DocumentTable; readonly column: string }
+    }[]
+    readonly foreignKeys: readonly MysqlForeignKeyPlan[]
+    readonly quality: readonly MysqlQualityIssue[]
+    readonly warnings: readonly string[]
+}
+
 /** One piece of the dump, tagged so a live import can report where it is. */
 export interface SqlChunk {
     readonly sql: string
@@ -579,10 +634,65 @@ export class MysqlExportService {
         }
     }
 
+    /**
+     * The same plan for a document database: names, exclusions, keys and checked links as for MySQL,
+     * without MySQL's types, row size limits and index rules. Values come out as canonical text.
+     */
+    documentSource(
+        session: DbfSession,
+        relationships: readonly DbfRelationship[],
+        options: MysqlExportOptions,
+    ): DocumentSource {
+        const plan = this.buildPlan(session, relationships, options, 'mongo')
+        const tableOf = new Map<TableSpec, DocumentTable>()
+        const tables = plan.tables.map((t): DocumentTable => {
+            const columns = active(t)
+            const doc: DocumentTable = {
+                fileName: t.fileName,
+                name: t.table,
+                deletedName: t.deletedTable,
+                rowCount: t.rowCount,
+                deletedCount: t.deletedCount,
+                encoding: t.encoding,
+                memoFile: t.memoFile,
+                indexFile: t.result.index?.fileName ?? null,
+                excluded: t.excluded,
+                skippedFields: t.skippedFields,
+                primaryTag: t.primaryTag,
+                tags: t.result.index?.tags ?? [],
+                dbfFieldNames: t.result.header.fields.map(f => f.name),
+                columns: t.columns.map(c => ({
+                    field: c.field, name: c.column, kind: c.kind, key: c.key, excluded: c.excluded, note: c.note,
+                })),
+                records: function* (set: RecordSet) {
+                    for (const record of iterateRecords(t.source, t.result.header, set)) {
+                        yield {
+                            recno: recordNumberOf(t.source, t.result.header, record),
+                            values: columns.map(c => decodeValue(c, record, t, options.emptyStringsAsNull)),
+                        }
+                    }
+                },
+            }
+            tableOf.set(t, doc)
+            return doc
+        })
+        return {
+            tables,
+            links: plan.accepted.map(a => ({
+                child: { table: tableOf.get(a.child.table)!, column: a.child.column.column },
+                parent: { table: tableOf.get(a.parent.table)!, column: a.parent.column.column },
+            })),
+            foreignKeys: plan.foreignKeys,
+            quality: plan.quality,
+            warnings: plan.warnings,
+        }
+    }
+
     private buildPlan(
         session: DbfSession,
         relationships: readonly DbfRelationship[],
         options: MysqlExportOptions,
+        target: PlanTarget = 'mysql',
     ): InternalPlan {
         const { overrides } = options
         const warnings: string[] = []
@@ -636,8 +746,9 @@ export class MysqlExportService {
                         ? source.memo ? `з ${source.memo.fileName}` : 'memo-файл (.fpt/.dbt) не завантажено — експортується як NULL'
                         : undefined,
                     excluded: columnOverride.exclude === true,
-                    typeOverridden: columnOverride.type !== undefined,
-                    mysqlType: columnOverride.type ?? mapping.mysqlType,
+                    // A MySQL type the user typed means nothing to a document database.
+                    typeOverridden: target === 'mysql' && columnOverride.type !== undefined,
+                    mysqlType: (target === 'mysql' ? columnOverride.type : undefined) ?? mapping.mysqlType,
                     collation: null,
                     nullable: true,
                     key: null,
@@ -711,34 +822,37 @@ export class MysqlExportService {
             ? this.planForeignKeys(tables, relationships, options)
             : { foreignKeys: [], accepted: [] }
 
-        // Types are final now (overrides, keys, foreign key alignment); make sure each row fits InnoDB.
-        // Columns in a foreign key or a .CDX index must stay indexable, so they never become TEXT.
-        const indexed = new Set<ColumnSpec>(accepted.flatMap(a => [a.child.column, a.parent.column]))
-        for (const t of tables) {
-            if (!options.indexes) continue
-            const fieldNames = t.result.header.fields.map(f => f.name)
-            for (const tag of t.result.index?.tags ?? []) {
-                try {
-                    for (const part of indexParts(tag.expression, fieldNames)) {
-                        const column = t.columns.find(c => c.field.name === part.field)
-                        if (column) indexed.add(column)
-                    }
-                } catch { /* an expression that cannot be translated creates no index */ }
+        // Row size and MySQL index rules mean nothing to a document database; it plans its own indexes.
+        if (target === 'mysql') {
+            // Types are final now (overrides, keys, foreign key alignment); make sure each row fits InnoDB.
+            // Columns in a foreign key or a .CDX index must stay indexable, so they never become TEXT.
+            const indexed = new Set<ColumnSpec>(accepted.flatMap(a => [a.child.column, a.parent.column]))
+            for (const t of tables) {
+                if (!options.indexes) continue
+                const fieldNames = t.result.header.fields.map(f => f.name)
+                for (const tag of t.result.index?.tags ?? []) {
+                    try {
+                        for (const part of indexParts(tag.expression, fieldNames)) {
+                            const column = t.columns.find(c => c.field.name === part.field)
+                            if (column) indexed.add(column)
+                        }
+                    } catch { /* an expression that cannot be translated creates no index */ }
+                }
+            }
+            for (const t of tables) if (!t.excluded) fitRowSize(t, warnings, indexed)
+
+            if (options.indexes) {
+                for (const t of tables) if (!t.excluded) t.indexes = this.planIndexes(t, options)
+            }
+
+            if (options.writeMode === 'sync') {
+                const keyless = tables.filter(t => !t.excluded && !primaryKeyOf(t)).map(t => t.table)
+                if (keyless.length > 0)
+                    warnings.push(`Синхронізація: немає первинного ключа в ${keyless.join(', ')} — ці таблиці очищаються й завантажуються заново під час кожної синхронізації. Виберіть первинний ключ у плані, щоб оновлювати їх порядково.`)
             }
         }
-        for (const t of tables) if (!t.excluded) fitRowSize(t, warnings, indexed)
 
-        if (options.indexes) {
-            for (const t of tables) if (!t.excluded) t.indexes = this.planIndexes(t, options)
-        }
-
-        if (options.writeMode === 'sync') {
-            const keyless = tables.filter(t => !t.excluded && !primaryKeyOf(t)).map(t => t.table)
-            if (keyless.length > 0)
-                warnings.push(`Синхронізація: немає первинного ключа в ${keyless.join(', ')} — ці таблиці очищаються й завантажуються заново під час кожної синхронізації. Виберіть первинний ключ у плані, щоб оновлювати їх порядково.`)
-        }
-
-        const quality = this.assessQuality(tables, options)
+        const quality = this.assessQuality(tables, options, target)
         return { options, tables, foreignKeys, accepted, quality, warnings }
     }
 
@@ -1100,7 +1214,8 @@ export class MysqlExportService {
      * Reads every record the way the export will and reports, per column, values that would be
      * lost (stored as NULL) or that strict-mode MySQL would reject (stopping the import).
      */
-    private assessQuality(tables: readonly TableSpec[], options: MysqlExportOptions): MysqlQualityIssue[] {
+    private assessQuality(tables: readonly TableSpec[], options: MysqlExportOptions, engine: PlanTarget): MysqlQualityIssue[] {
+        const mysql = engine === 'mysql'
         const issues = new Map<string, MysqlQualityIssue & { examples: string[]; count: number }>()
         const report = (table: TableSpec, target: string, column: ColumnSpec, problem: string, effect: MysqlQualityEffect, example: string | null) => {
             const key = `${target}\u0000${column.column}\u0000${problem}`
@@ -1123,7 +1238,7 @@ export class MysqlExportService {
             const columns = active(table)
 
             for (const column of columns) {
-                if (column.key !== null && !isKeyableType(column.mysqlType)) {
+                if (mysql && column.key !== null && !isKeyableType(column.mysqlType)) {
                     issues.set(`${table.table}\u0000${column.column}\u0000keyable`, {
                         fileName: table.fileName, table: table.table, dbfField: column.field.name, column: column.column,
                         problem: `${column.mysqlType} не може бути ${column.key === 'PRI' ? 'первинним' : 'унікальним'} ключем — використайте VARCHAR(n)`,
@@ -1148,14 +1263,16 @@ export class MysqlExportService {
                         if (value === null) {
                             const loss = lossReason(column, record, table.memo)
                             if (loss) report(table, target, column, loss, 'null', rawDisplay(column, record, table.decoder))
-                            if (keyed && !column.nullable) report(table, target, column, 'порожнє значення в первинному ключі (NOT NULL)', 'fail', null)
+                            if (keyed && !column.nullable)
+                                report(table, target, column, mysql ? 'порожнє значення в первинному ключі (NOT NULL)' : 'порожнє значення в _id', 'fail', null)
                             continue
                         }
-                        const misfit = typeProblem(value, column.kind, column.mysqlType)
+                        const misfit = mysql ? typeProblem(value, column.kind, column.mysqlType) : documentProblem(value, column.kind)
                         if (misfit) report(table, target, column, misfit, 'fail', isMemoKind(column.kind) || column.kind === 'binary' ? `${value.length / 2} ${plural(value.length / 2, 'байт', 'байти', 'байтів')}` : value)
                         const seen = keyed ? keySeen.get(column) : undefined
                         if (seen) {
-                            if (seen.has(value)) report(table, target, column, `повторюване значення в ${column.key === 'PRI' ? 'первинному' : 'унікальному'} ключі`, 'fail', value)
+                            if (seen.has(value)) report(table, target, column, !mysql && column.key === 'PRI' ? 'повторюване значення _id'
+                                : `повторюване значення в ${column.key === 'PRI' ? 'первинному' : 'унікальному'} ключі`, 'fail', value)
                             else seen.add(value)
                         }
                     }
