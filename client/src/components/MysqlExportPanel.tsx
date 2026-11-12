@@ -1,3 +1,4 @@
+import { translate } from '@/i18n';
 import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -34,25 +35,25 @@ const DEFAULT_OPTIONS: MysqlExportOptions = {
 type Toggle = 'includeData' | 'foreignKeys' | 'indexes' | 'keepDeleted' | 'emptyStringsAsNull' | 'orphansAsNull'
 
 const TOGGLES: ReadonlyArray<{ key: Toggle; label: string; title?: string }> = [
-    { key: 'includeData', label: 'Включати дані (INSERT)' },
-    { key: 'foreignKeys', label: 'Створювати зовнішні ключі' },
-    { key: 'indexes', label: 'Створювати індекси з .CDX' },
-    { key: 'keepDeleted', label: 'Зберігати видалені записи в <таблиця>_deleted', title: 'Інакше записи, позначені в DBF як видалені (*), пропускаються' },
-    { key: 'emptyStringsAsNull', label: "Порожній текст → NULL замість ''" },
+    { key: 'includeData', get label() { return translate("Включати дані (INSERT)") } },
+    { key: 'foreignKeys', get label() { return translate("Створювати зовнішні ключі") } },
+    { key: 'indexes', get label() { return translate("Створювати індекси з .CDX") } },
+    { key: 'keepDeleted', get label() { return translate("Зберігати видалені записи в <таблиця>_deleted") }, get title() { return translate("Інакше записи, позначені в DBF як видалені (*), пропускаються") } },
+    { key: 'emptyStringsAsNull', get label() { return translate("Порожній текст → NULL замість ''") } },
     {
         key: 'orphansAsNull',
-        label: 'Значення без відповідника → NULL',
-        title: "Посилання на запис, якого немає в батьківській таблиці (0 як «не вказано», видалений запис), записується як NULL — і зв'язок створюється. Інакше такий зв'язок пропускається.",
+        get label() { return translate("Значення без відповідника → NULL") },
+        get title() { return translate("Посилання на запис, якого немає в батьківській таблиці (0 як «не вказано», видалений запис), записується як NULL — і зв'язок створюється. Інакше такий зв'язок пропускається.") },
     },
 ]
 
 const WRITE_MODES: ReadonlyArray<{ value: MysqlWriteMode; label: string; hint: string }> = [
-    { value: 'replace', label: 'Замінити таблиці', hint: 'Наявні таблиці з такими самими назвами видаляються й створюються заново.' },
-    { value: 'append', label: 'Дописати рядки', hint: 'Відсутні таблиці створюються; рядки додаються до наявних (з помилкою, якщо такі рядки вже є).' },
+    { value: 'replace', get label() { return translate("Замінити таблиці") }, get hint() { return translate("Наявні таблиці з такими самими назвами видаляються й створюються заново.") } },
+    { value: 'append', get label() { return translate("Дописати рядки") }, get hint() { return translate("Відсутні таблиці створюються; рядки додаються до наявних (з помилкою, якщо такі рядки вже є).") } },
     {
         value: 'sync',
-        label: 'Синхронізувати (нові та змінені рядки)',
-        hint: 'Запускайте повторно, поки стара система ще працює: нові рядки вставляються, змінені оновлюються за первинним ключем, решта лишається як є. Таблиці без первинного ключа завантажуються заново.',
+        get label() { return translate("Синхронізувати (нові та змінені рядки)") },
+        get hint() { return translate("Запускайте повторно, поки стара система ще працює: нові рядки вставляються, змінені оновлюються за первинним ключем, решта лишається як є. Таблиці без первинного ключа завантажуються заново.") },
     },
 ]
 
@@ -112,7 +113,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
             <div className="flex flex-col gap-4 border p-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="mysqlDatabase" className="text-xs text-muted-foreground">Назва бази даних (необов'язково)</Label>
+                        <Label htmlFor="mysqlDatabase" className="text-xs text-muted-foreground">{translate("Назва бази даних (необов'язково)")}</Label>
                         <Input
                             id="mysqlDatabase"
                             placeholder="legacy_db"
@@ -123,7 +124,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground">Наявні таблиці</Label>
+                        <Label className="text-xs text-muted-foreground">{translate("Наявні таблиці")}</Label>
                         <Select
                             items={WRITE_MODES.map(({ value, label }) => ({ value, label }))}
                             value={options.writeMode}
@@ -152,7 +153,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                     </div>
                     <Button className="ml-auto" disabled={!databaseValid || dump.isPending || !plan} onClick={download}>
                         {dump.isPending ? <Loader2 className="animate-spin" /> : <Download />}
-                        Завантажити {fileName}
+                        {translate("Завантажити")} {fileName}
                     </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -166,22 +167,22 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                                 disabled={!options.includeData}
                                 onChange={(e) => setOptions((o) => ({ ...o, syncDeletes: e.target.checked }))}
                             />
-                            Також видаляти з MySQL рядки, яких уже немає в DBF (видалені або прибрані PACK у старій системі)
+                            {translate("Також видаляти з MySQL рядки, яких уже немає в DBF (видалені або прибрані PACK у старій системі)")}
                         </label>
                     )}
                 </div>
                 {!databaseValid && (
-                    <p className="text-xs text-destructive">Назва бази даних: лише латинські літери, цифри та _, до 64 символів.</p>
+                    <p className="text-xs text-destructive">{translate("Назва бази даних: лише латинські літери, цифри та _, до 64 символів.")}</p>
                 )}
                 {dump.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(dump.state.error)}</p>}
                 {blockingIssues > 0 && (
                     <p className="text-xs text-destructive">
-                        Файл можна завантажити, але MySQL зупиниться на проблемах у даних ({blockingIssues}) — див. «Якість даних» нижче.
+                        {translate("Файл можна завантажити, але MySQL зупиниться на проблемах у даних (")}{blockingIssues}{translate(") — див. «Якість даних» нижче.")}
                     </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                    Імпорт: <code className="bg-muted px-1">mysql --default-character-set=utf8mb4 -u root -p &lt; {fileName}</code>
-                    {' '}або в MySQL Workbench: File → Run SQL Script.
+                    {translate("Імпорт:")} <code className="bg-muted px-1">mysql --default-character-set=utf8mb4 -u root -p &lt; {fileName}</code>
+                    {' '}{translate("або в MySQL Workbench: File → Run SQL Script.")}
                 </p>
             </div>
 
@@ -191,13 +192,13 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                 <p className="text-sm text-destructive">
                     {errorMessage(planState.error)}
                     {Object.keys(overrides).length > 0 && (
-                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>Скинути зміни</Button>
+                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>{translate("Скинути зміни")}</Button>
                     )}
                 </p>
             )}
             {planState.status === 'pending' && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin" /> {plan ? 'Оновлюю план…' : 'Будую план і перевіряю кожен запис…'}
+                    <Loader2 className="size-3.5 animate-spin" /> {plan ? translate("Оновлюю план…") : translate("Будую план і перевіряю кожен запис…")}
                 </p>
             )}
             {plan && (

@@ -1,3 +1,4 @@
+import { translate } from '@/i18n';
 declare const __brand: unique symbol
 type Brand<T, B extends string> = T & { readonly [__brand]: B }
 
@@ -13,11 +14,11 @@ export type DbfFieldTypeCode =
     | '0' | '@' | 'O'
 
 export const FIELD_TYPE_LABELS = {
-    C: 'Символьний', N: 'Числовий', F: 'Дробовий (Float)', D: 'Дата',
-    T: 'Дата й час', L: 'Логічний', M: 'Memo', B: 'Double',
-    G: 'General (OLE)', P: 'Picture', Y: 'Грошовий', I: 'Цілий',
-    V: 'Varchar', Q: 'Varbinary', '+': 'Автоінкремент',
-    '0': 'Прапорці NULL', '@': 'Мітка часу', O: 'Double',
+    get C() { return translate("Символьний") }, get N() { return translate("Числовий") }, get F() { return translate("Дробовий (Float)") }, get D() { return translate("Дата") },
+    get T() { return translate("Дата й час") }, get L() { return translate("Логічний") }, M: 'Memo', B: 'Double',
+    G: 'General (OLE)', P: 'Picture', get Y() { return translate("Грошовий") }, get I() { return translate("Цілий") },
+    V: 'Varchar', Q: 'Varbinary', get '+'() { return translate("Автоінкремент") },
+    get '0'() { return translate("Прапорці NULL") }, get '@'() { return translate("Мітка часу") }, O: 'Double',
 } as const satisfies Record<DbfFieldTypeCode, string>
 
 export type FieldCategory = 'text' | 'number' | 'temporal' | 'boolean' | 'blob'

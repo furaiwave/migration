@@ -1,3 +1,4 @@
+import { LocalizedError } from '@/i18n';
 import type {
     ParseMultipleResult,
     DbfRelationshipGraph,
@@ -130,9 +131,9 @@ export class ApiError extends Error {
 }
 
 /** fetch failed: connection, browser policy, or a local upload read error. */
-export class BackendUnreachableError extends Error {
+export class BackendUnreachableError extends LocalizedError {
     constructor(readonly baseUrl: string, cause: unknown) {
-        super(`Не вдалося виконати запит до ${baseUrl}. Причиною може бути з’єднання, блокування браузером або зміна вибраних файлів. Перевірте помилку запиту у F12 → Console та Network.`, { cause })
+        super("Не вдалося виконати запит до {0}. Причиною може бути з’єднання, блокування браузером або зміна вибраних файлів. Перевірте помилку запиту у F12 → Console та Network.", [baseUrl], { cause })
         this.name = 'BackendUnreachableError'
     }
 }

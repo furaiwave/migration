@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:i18n": "node --test scripts/test-i18n.cjs",
+    "test:i18n:browser": "npm run build && node scripts/smoke-i18n.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

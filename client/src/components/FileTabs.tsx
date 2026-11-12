@@ -1,3 +1,4 @@
+import { getLanguage } from '@/i18n';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FileInspector } from './FileInspector';
 import type { DbfFilePreview, DbfRelationshipGraph } from "@/api/api.types";
@@ -22,7 +23,7 @@ export function FileTabs({ sessionId, files, onFileChange }: FileTabsProps) {
             className="rounded-md border border-border/50 bg-card/40 font-mono flex-none px-3 data-active:border-primary/50 data-active:bg-primary/10"
           >
             {f.fileName}
-            <span className="ml-1.5 text-xs text-muted-foreground">{f.totalRecords.toLocaleString()}</span>
+            <span className="ml-1.5 text-xs text-muted-foreground">{f.totalRecords.toLocaleString(getLanguage())}</span>
           </TabsTrigger>
         ))}
       </TabsList>

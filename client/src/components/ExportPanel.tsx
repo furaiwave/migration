@@ -1,3 +1,4 @@
+import { translate } from '@/i18n';
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { MysqlExportPanel } from "./MysqlExportPanel";
@@ -7,8 +8,8 @@ import type { DbfRelationshipGraph } from "@/api/api.types";
 type Target = 'mysql' | 'mongo'
 
 const TARGETS: ReadonlyArray<{ value: Target; label: string; description: string }> = [
-    { value: 'mysql', label: 'MySQL', description: 'Таблиці з типами й зовнішніми ключами: дамп .sql (CREATE TABLE, INSERT, FOREIGN KEY, utf8mb4) або імпорт напряму.' },
-    { value: 'mongo', label: 'MongoDB', description: 'Колекції документів з BSON-типами, _id з первинного ключа й посиланнями між колекціями: скрипт mongosh або імпорт напряму.' },
+    { value: 'mysql', label: 'MySQL', get description() { return translate("Таблиці з типами й зовнішніми ключами: дамп .sql (CREATE TABLE, INSERT, FOREIGN KEY, utf8mb4) або імпорт напряму.") } },
+    { value: 'mongo', label: 'MongoDB', get description() { return translate("Колекції документів з BSON-типами, _id з первинного ключа й посиланнями між колекціями: скрипт mongosh або імпорт напряму.") } },
 ]
 
 // Per-browser convenience; storage may be unavailable, and then MySQL is shown first.
@@ -42,7 +43,7 @@ export function ExportPanel({ sessionId, graph }: ExportPanelProps) {
         <section className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
-                    <h2 className="text-sm font-semibold">Експорт у</h2>
+                    <h2 className="text-sm font-semibold">{translate("Експорт у")}</h2>
                     <div role="tablist" className="flex border">
                         {TARGETS.map((t) => (
                             <button

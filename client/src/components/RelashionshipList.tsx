@@ -1,3 +1,4 @@
+import { translate } from '@/i18n';
 import { Trash2 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
@@ -6,15 +7,15 @@ import type { DbfRelationship, GraphRelationship, RelationshipConfidence, Relati
 
 const KIND_META: Record<RelationshipKind, { label: string; className: string }> = {
     auto_name: {
-        label: 'збіг назв',
+        get label() { return translate("збіг назв") },
         className: 'border-sky-500/30 text-sky-700 dark:text-sky-300',
     },
     auto_fk: {
-        label: 'зовнішній ключ',
+        get label() { return translate("зовнішній ключ") },
         className: 'border-amber-500/30 text-amber-700 dark:text-amber-300'
     },
     manual: {
-        label: 'вручну',
+        get label() { return translate("вручну") },
         className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
     }
 }
@@ -27,20 +28,20 @@ const CONFIDENCE_STYLE: Record<RelationshipConfidence, string> = {
 }
 
 const CONFIDENCE_LABEL: Record<RelationshipConfidence, string> = {
-    certain: 'певна',
-    high: 'висока',
-    medium: 'середня',
-    low: 'низька'
+    get certain() { return translate("певна") },
+    get high() { return translate("висока") },
+    get medium() { return translate("середня") },
+    get low() { return translate("низька") }
 }
 
 function relationshipDetail(rel: DbfRelationship): string {
     switch(rel.kind){
         case 'auto_name':
-            return rel.matchedOn === 'exact_name' ? 'однакова назва поля' : 'збіг нормалізованих назв'
+            return rel.matchedOn === 'exact_name' ? translate("однакова назва поля") : translate("збіг нормалізованих назв")
         case 'auto_fk':
-            return `визначено за ${rel.inferredFrom}`
+            return translate("визначено за {0}", [rel.inferredFrom])
         case 'manual':
-            return rel.label ?? 'зв\'язок, доданий вручну'
+            return rel.label ?? translate("зв'язок, доданий вручну")
         default: {
             const _never: never = rel
             return _never
@@ -60,7 +61,7 @@ export function RelationshipList({ relationships, busyId, onToggle, onDelete }: 
     if(relationships.length === 0){
         return (
             <div className="flex h-24 items-center justify-center border border-dashed text-sm text-muted-foreground">
-                Зв'язків ще не знайдено. Додайте зв'язок вручну нижче.
+                {translate("Зв'язків ще не знайдено. Додайте зв'язок вручну нижче.")}
             </div>
         )
     }
@@ -70,15 +71,15 @@ export function RelationshipList({ relationships, busyId, onToggle, onDelete }: 
             <TableHeader>
                 <TableRow>
                     <TableHead className="w-12 text-right">#</TableHead>
-                    <TableHead className="w-16 text-center" title="Зв'язки без позначки залишаються в списку, але не потрапляють в експорт у MySQL">Вкл.</TableHead>
-                    <TableHead>Таблиця-джерело</TableHead>
-                    <TableHead>Поле-джерело</TableHead>
+                    <TableHead className="w-16 text-center" title={translate("Зв'язки без позначки залишаються в списку, але не потрапляють в експорт у MySQL")}>{translate("Вкл.")}</TableHead>
+                    <TableHead>{translate("Таблиця-джерело")}</TableHead>
+                    <TableHead>{translate("Поле-джерело")}</TableHead>
                     <TableHead className="w-10 text-center">→</TableHead>
-                    <TableHead>Цільова таблиця</TableHead>
-                    <TableHead>Цільове поле</TableHead>
-                    <TableHead>Вид</TableHead>
-                    <TableHead>Впевненість</TableHead>
-                    <TableHead>Деталі</TableHead>
+                    <TableHead>{translate("Цільова таблиця")}</TableHead>
+                    <TableHead>{translate("Цільове поле")}</TableHead>
+                    <TableHead>{translate("Вид")}</TableHead>
+                    <TableHead>{translate("Впевненість")}</TableHead>
+                    <TableHead>{translate("Деталі")}</TableHead>
                     <TableHead className="w-12" />
                 </TableRow>
             </TableHeader>
@@ -98,7 +99,7 @@ export function RelationshipList({ relationships, busyId, onToggle, onDelete }: 
                                     className="size-3.5 cursor-pointer accent-primary align-middle"
                                     checked={!rel.disabled}
                                     disabled={busy}
-                                    aria-label={`Використовувати зв'язок ${rel.sourceFile}.${rel.sourceField} → ${rel.targetFile}.${rel.targetField}`}
+                                    aria-label={translate("Використовувати зв'язок {0}.{1} → {2}.{3}", [rel.sourceFile, rel.sourceField, rel.targetFile, rel.targetField])}
                                     onChange={(e) => onToggle(rel, !e.target.checked)}
                                 />
                             </TableCell>
@@ -118,8 +119,8 @@ export function RelationshipList({ relationships, busyId, onToggle, onDelete }: 
                                         className="text-muted-foreground hover:text-destructive disabled:opacity-40"
                                         disabled={busy}
                                         onClick={() => onDelete(rel)}
-                                        aria-label="Видалити цей зв'язок"
-                                        title="Видалити цей зв'язок"
+                                        aria-label={translate("Видалити цей зв'язок")}
+                                        title={translate("Видалити цей зв'язок")}
                                     >
                                         <Trash2 className="size-3.5" />
                                     </button>

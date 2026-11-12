@@ -1,3 +1,4 @@
+import { LocalizedError } from '@/i18n';
 import { apiRequest } from "@/client/client";
 import type { ParseMultipleResult } from "@/api/api.types";
 import { useApiMutation } from "./useApiMutation";
@@ -15,10 +16,7 @@ async function parseFiles(input: ParseFilesInput): Promise<ParseMultipleResult>{
         try {
             await file.slice(0, 1).arrayBuffer()
         } catch (cause) {
-            throw new Error(
-                `Не вдалося прочитати файл «${file.name}». Він міг змінитися після вибору або бути недоступним. Закрийте програму, яка його змінює, приберіть файл зі списку й виберіть його знову.`,
-                { cause },
-            )
+            throw new LocalizedError("Не вдалося прочитати файл «{0}». Він міг змінитися після вибору або бути недоступним. Закрийте програму, яка його змінює, приберіть файл зі списку й виберіть його знову.", [file.name], { cause })
         }
         form.append('files', file, file.name)
     }

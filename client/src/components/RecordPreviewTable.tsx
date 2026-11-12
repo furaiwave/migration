@@ -1,3 +1,4 @@
+import { translate } from '@/i18n';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { FieldTypeBadge } from "./FieldTypeBadge";
 import { cn } from "@/lib/utils";
@@ -19,18 +20,18 @@ const formatDate = (value: string): string => `${value.slice(0, 4)}-${value.slic
 
 /** How one cell is shown: the text, its colour, and a tooltip where the text alone is not enough. */
 function cellView(field: DbfFieldDescriptor, value: string | null): { text: string; className?: string; title?: string } {
-    if (value === null) return { text: 'NULL', className: 'text-xs font-medium tracking-wide text-sky-700 dark:text-sky-300', title: 'NULL у Visual FoxPro — у MySQL теж буде NULL' }
-    if (value === '') return { text: '∅', className: 'text-muted-foreground/50', title: 'Порожньо' }
+    if (value === null) return { text: 'NULL', className: 'text-xs font-medium tracking-wide text-sky-700 dark:text-sky-300', get title() { return translate("NULL у Visual FoxPro — у MySQL теж буде NULL") } }
+    if (value === '') return { text: '∅', className: 'text-muted-foreground/50', get title() { return translate("Порожньо") } }
     if (value.startsWith('(memo:')) return { text: value, className: 'italic text-rose-700 dark:text-rose-300' }
     if (field.type === 'L') {
         return value === 'true'
-            ? { text: '✓ так', className: 'text-emerald-700 dark:text-emerald-300' }
-            : { text: '✗ ні', className: 'text-muted-foreground' }
+            ? { get text() { return translate("✓ так") }, className: 'text-emerald-700 dark:text-emerald-300' }
+            : { get text() { return translate("✗ ні") }, className: 'text-muted-foreground' }
     }
     if (field.type === 'D') {
         return isDbfDate(value)
             ? { text: formatDate(value) }
-            : { text: value, className: 'text-amber-700 dark:text-amber-300', title: 'Некоректна дата — у MySQL стане NULL' }
+            : { text: value, className: 'text-amber-700 dark:text-amber-300', get title() { return translate("Некоректна дата — у MySQL стане NULL") } }
     }
     if (field.type === 'Q') return { text: value, className: 'font-mono text-xs' }
     const long = value.length > 40 || /\n/.test(value)
@@ -44,7 +45,7 @@ export function RecordPreviewTable({ fields, rows }: RecordPreviewTableProps){
     if(rows.length === 0) {
         return(
             <div className="flex h-32 items-center justify-center border border-dashed text-sm text-muted-foreground">
-                Немає записів для перегляду — таблиця порожня або всі записи видалено
+                {translate("Немає записів для перегляду — таблиця порожня або всі записи видалено")}
             </div>
         )
     }
@@ -56,7 +57,7 @@ export function RecordPreviewTable({ fields, rows }: RecordPreviewTableProps){
                     <TableHead className="w-12 text-right text-muted-foreground">#</TableHead>
                     {columns.map((f) => (
                         <TableHead key={f.name} className={cn(fieldCategory(f.type) === 'number' && 'text-right')}>
-                            <span className="inline-flex items-center gap-2" title={f.nullable ? 'Може містити NULL' : undefined}>
+                            <span className="inline-flex items-center gap-2" title={f.nullable ? translate("Може містити NULL") : undefined}>
                                 {f.name}
                                 <FieldTypeBadge type={f.type} />
                             </span>

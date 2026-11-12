@@ -1,3 +1,4 @@
+import { translate, getLanguage } from '@/i18n';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import type { DbfHeader } from "@/api/api.types";
 
@@ -10,8 +11,8 @@ function formatLastUpdate({ year, month, day }: DbfHeader['lastUpdate']): string
 function flagsOf(header: DbfHeader): string {
     const flags: string[] = []
     if(header.hasMemo) flags.push('memo')
-    if(header.tableFlags.hasStructuralCdx) flags.push('індекс .cdx')
-    if(header.tableFlags.isDatabase) flags.push('база .dbc')
+    if(header.tableFlags.hasStructuralCdx) flags.push(translate("індекс .cdx"))
+    if(header.tableFlags.isDatabase) flags.push(translate("база .dbc"))
     return flags.length > 0 ? flags.join(', ') : '—'
 }
 
@@ -25,18 +26,18 @@ interface HeaderInspectorProps {
 
 export function HeaderInspector({ header, encoding, memoFile, liveRecords }: HeaderInspectorProps){
     const columns: ReadonlyArray<readonly [label: string, value: string]> = [
-        ['Формат', header.typeName],
-        ['Байт типу', hex(header.typeByte)],
-        ['Записи', liveRecords.toLocaleString()],
-        ['Видалені', (header.recordCount - liveRecords).toLocaleString()],
-        ['Поля', String(header.fields.length)],
-        ['Довжина запису', `${header.recordLength} Б`],
-        ['Зміщення даних', `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
-        ['Останнє оновлення', formatLastUpdate(header.lastUpdate)],
-        ['Кодова сторінка', hex(header.codePage)],
-        ['Кодування', encoding ?? '—'],
-        ['Ознаки', flagsOf(header)],
-        ['Memo-файл', memoFile ?? '—'],
+        [translate("Формат"), header.typeName],
+        [translate("Байт типу"), hex(header.typeByte)],
+        [translate("Записи"), liveRecords.toLocaleString(getLanguage())],
+        [translate("Видалені"), (header.recordCount - liveRecords).toLocaleString(getLanguage())],
+        [translate("Поля"), String(header.fields.length)],
+        [translate("Довжина запису"), translate("{0} Б", [header.recordLength])],
+        [translate("Зміщення даних"), `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
+        [translate("Останнє оновлення"), formatLastUpdate(header.lastUpdate)],
+        [translate("Кодова сторінка"), hex(header.codePage)],
+        [translate("Кодування"), encoding ?? '—'],
+        [translate("Ознаки"), flagsOf(header)],
+        [translate("Memo-файл"), memoFile ?? '—'],
     ]
 
     return(

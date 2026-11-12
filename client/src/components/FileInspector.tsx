@@ -1,3 +1,4 @@
+import { translate, getLanguage } from '@/i18n';
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -33,11 +34,11 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">
-            {view === 'schema' ? 'Структура полів' : 'Перегляд записів'}
+            {view === 'schema' ? translate("Структура полів") : translate("Перегляд записів")}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
               {view === 'schema'
-                ? `${file.header.fields.length} ${plural(file.header.fields.length, 'поле', 'поля', 'полів')}`
-                : `${file.preview.length} з ${file.totalRecords.toLocaleString()} ${plural(file.totalRecords, 'запису', 'записів', 'записів')}`}
+                ? `${file.header.fields.length} ${plural(file.header.fields.length, translate("поле"), translate("поля"), translate("полів"))}`
+                : translate("{0} з {1} {2}", [file.preview.length, file.totalRecords.toLocaleString(getLanguage()), plural(file.totalRecords, translate("запису"), translate("записів"), translate("записів"))])}
             </span>
           </h3>
           <div className="flex gap-1">
@@ -46,14 +47,14 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
               size="sm"
               onClick={() => setView('schema')}
             >
-              Структура
+              {translate("Структура")}
             </Button>
             <Button
               variant={view === 'data' ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => setView('data')}
             >
-              Дані
+              {translate("Дані")}
             </Button>
           </div>
         </div>
@@ -72,21 +73,21 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-sm font-semibold">
-        Індекси
+        {translate("Індекси")}
         <span className="ml-2 text-xs font-normal text-muted-foreground">
-          {index.fileName} · {index.tags.length} {plural(index.tags.length, 'тег', 'теги', 'тегів')}
+          {index.fileName} · {index.tags.length} {plural(index.tags.length, translate("тег"), translate("теги"), translate("тегів"))}
         </span>
       </h3>
       {index.error ? (
-        <p className="text-xs text-destructive">Не вдалося прочитати {index.fileName}: {index.error}</p>
+        <p className="text-xs text-destructive">{translate("Не вдалося прочитати")} {index.fileName}: {index.error}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Тег</TableHead>
-              <TableHead>Вираз ключа</TableHead>
-              <TableHead>Фільтр (FOR)</TableHead>
-              <TableHead>Вид</TableHead>
+              <TableHead>{translate("Тег")}</TableHead>
+              <TableHead>{translate("Вираз ключа")}</TableHead>
+              <TableHead>{translate("Фільтр (FOR)")}</TableHead>
+              <TableHead>{translate("Вид")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -96,7 +97,7 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
                 <TableCell className="font-mono text-xs">{t.expression}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{t.filter ?? '—'}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {[t.candidate && 'кандидат', t.unique && 'унікальний', t.descending && 'спадний'].filter(Boolean).join(', ') || 'звичайний'}
+                  {[t.candidate && translate("кандидат"), t.unique && translate("унікальний"), t.descending && translate("спадний")].filter(Boolean).join(', ') || translate("звичайний")}
                 </TableCell>
               </TableRow>
             ))}
@@ -110,12 +111,12 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
 /** Re-reads the table with the chosen encoding, so a wrong guess shows up here rather than in MySQL. */
 function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   const value = file.encodingSource === 'manual' ? file.encoding : '';
   const items = ENCODINGS.map((e) =>
     e.value === '' && file.encodingSource !== 'manual'
-      ? { value: '', label: `Автоматично — ${file.encoding}, ${ENCODING_SOURCE_LABEL[file.encodingSource]}` }
+      ? { value: '', label: translate("Автоматично — {0}, {1}", [file.encoding, ENCODING_SOURCE_LABEL[file.encodingSource]]) }
       : { value: e.value, label: e.label },
   );
 
@@ -127,13 +128,13 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
       body: { encoding: encoding || null },
     })
       .then(({ file: next, graph }) => onFileChange(next, graph))
-      .catch((err) => setError(errorMessage(err)))
+      .catch((err) => setError(err instanceof Error ? err : new Error(String(err))))
       .finally(() => setPending(false));
   };
 
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs">
-      <span className="font-semibold">Кодування тексту</span>
+      <span className="font-semibold">{translate("Кодування тексту")}</span>
       <Select items={items} value={value} onValueChange={(v) => choose(v ?? '')} disabled={pending}>
         <SelectTrigger size="sm" className="min-w-72">
           <SelectValue />
@@ -145,13 +146,12 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
       {pending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
       <span className="text-muted-foreground">
         {file.encodingSource === 'detected'
-          ? `${file.header.codePage === 0
-              ? 'У файлі немає позначки кодової сторінки'
-              : `Позначка кодової сторінки (0x${file.header.codePage.toString(16).toUpperCase()}) невідома або не відповідає тексту`
-            }, тому кодування визначено за текстом — перевірте вкладку «Дані»; якщо літери неправильні, виберіть інше кодування.`
-          : 'Це кодування використовується для назв полів, перегляду та експорту в MySQL.'}
+          ? translate("{0}, тому кодування визначено за текстом — перевірте вкладку «Дані»; якщо літери неправильні, виберіть інше кодування.", [file.header.codePage === 0
+              ? translate("У файлі немає позначки кодової сторінки")
+              : translate("Позначка кодової сторінки (0x{0}) невідома або не відповідає тексту", [file.header.codePage.toString(16).toUpperCase()])])
+          : translate("Це кодування використовується для назв полів, перегляду та експорту в MySQL.")}
       </span>
-      {error && <span className="text-destructive">{error}</span>}
+      {error && <span className="text-destructive">{errorMessage(error)}</span>}
     </div>
   );
 }

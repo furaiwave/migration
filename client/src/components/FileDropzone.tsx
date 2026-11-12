@@ -1,3 +1,4 @@
+import { translate, getLanguage } from '@/i18n';
 import { useCallback, useRef, useState } from "react";
 import { Upload, FileX2, FolderOpen, Loader2, Trash2 } from 'lucide-react'
 import { Button } from "./ui/button";
@@ -19,16 +20,16 @@ const TABLE_PATTERN = /\.dbf$/i
 const INDEX_PATTERN = /\.cdx$/i
 
 const kindOf = (name: string): string =>
-    TABLE_PATTERN.test(name) ? 'таблиця' : INDEX_PATTERN.test(name) ? 'індекс' : 'memo'
+    TABLE_PATTERN.test(name) ? translate("таблиця") : INDEX_PATTERN.test(name) ? translate("індекс") : 'memo'
 // Matches the server limit; memo and index files do not count as tables.
 const MAX_TABLES = 30
 
 const baseName = (name: string): string => name.replace(/\.[^.]+$/, '').toUpperCase()
-const extensionOf = (name: string): string => /\.[^.]+$/.exec(name)?.[0].toLowerCase() ?? '(без розширення)'
+const extensionOf = (name: string): string => /\.[^.]+$/.exec(name)?.[0].toLowerCase() ?? translate("(без розширення)")
 
 function formatSize(bytes: number): string {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`
-    return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
+    if (bytes < 1024 * 1024) return translate("{0} КБ", [(bytes / 1024).toLocaleString(getLanguage(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })])
+    return translate("{0} МБ", [(bytes / 1024 / 1024).toLocaleString(getLanguage(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })])
 }
 
 /** Every file in a dropped folder, subfolders included. Plain file drops pass straight through. */
@@ -57,7 +58,7 @@ async function filesFromDrop(dataTransfer: DataTransfer): Promise<File[]> {
 }
 
 interface Notice {
-    readonly skipped: string | null
+    readonly skipped: readonly File[]
     readonly duplicates: readonly string[]
 }
 
@@ -66,20 +67,13 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
     const[reading, setReading] = useState(false)
     const[files, setFiles] = useState<File[]>([])
     const[previewRows, setPreviewRows] = useState(20)
-    const[notice, setNotice] = useState<Notice>({ skipped: null, duplicates: [] })
+    const[notice, setNotice] = useState<Notice>({ skipped: [], duplicates: [] })
     const inputRef = useRef<HTMLInputElement>(null)
     const folderRef = useRef<HTMLInputElement>(null)
 
     const ingest = useCallback((incoming: readonly File[]) => {
         const accepted = incoming.filter((f) => DBF_PATTERN.test(f.name))
         const others = incoming.filter((f) => !DBF_PATTERN.test(f.name))
-
-        // A folder of an old system is full of .cdx/.idx/.txt — summarise by type instead of listing them.
-        const byExtension = new Map<string, number>()
-        for (const f of others) byExtension.set(extensionOf(f.name), (byExtension.get(extensionOf(f.name)) ?? 0) + 1)
-        const skipped = others.length === 0 ? null
-            : `Пропущено ${others.length} ${plural(others.length, 'інший файл', 'інші файли', 'інших файлів')}: ` +
-              [...byExtension.entries()].sort((a, b) => b[1] - a[1]).map(([ext, n]) => `${ext} ×${n}`).join(', ')
 
         const seen = new Set(files.map((p) => p.name.toUpperCase()))
         const duplicates: string[] = []
@@ -94,13 +88,20 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
             }
         }
         setFiles([...files, ...added])
-        setNotice({ skipped, duplicates })
+        setNotice({ skipped: others, duplicates })
     }, [files])
 
     const readDrop = (dataTransfer: DataTransfer) => {
         setReading(true)
         void filesFromDrop(dataTransfer).then(ingest).finally(() => setReading(false))
     }
+
+    // A folder of an old system is full of .cdx/.idx/.txt — summarise by type instead of listing them.
+    const byExtension = new Map<string, number>()
+    for (const f of notice.skipped) byExtension.set(extensionOf(f.name), (byExtension.get(extensionOf(f.name)) ?? 0) + 1)
+    const skipped = notice.skipped.length === 0 ? null
+        : translate("Пропущено {0} {1}: ", [notice.skipped.length, plural(notice.skipped.length, translate("інший файл"), translate("інші файли"), translate("інших файлів"))]) +
+          [...byExtension.entries()].sort((a, b) => b[1] - a[1]).map(([ext, n]) => `${ext} ×${n}`).join(', ')
 
     const removeFile = (name: string) => setFiles((prev) => prev.filter((f) => f.name !== name))
 
@@ -137,9 +138,9 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                     ? <Loader2 className="size-8 animate-spin text-muted-foreground" />
                     : <Upload className={cn('size-8', dragging ? 'text-primary' : 'text-muted-foreground')} />}
                 <div>
-                    <p className="text-sm font-medium">Перетягніть сюди папку бази даних або файли .dbf (разом із memo-файлами .fpt/.dbt та індексами .cdx) чи натисніть, щоб вибрати файли</p>
+                    <p className="text-sm font-medium">{translate("Перетягніть сюди папку бази даних або файли .dbf (разом із memo-файлами .fpt/.dbt та індексами .cdx) чи натисніть, щоб вибрати файли")}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                        Вкладені папки теж читаються, інші файли пропускаються. До {MAX_TABLES} таблиць; зв'язки між таблицями визначаються автоматично.
+                        {translate("Вкладені папки теж читаються, інші файли пропускаються. До")} {MAX_TABLES} {translate("таблиць; зв'язки між таблицями визначаються автоматично.")}
                     </p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
@@ -149,7 +150,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}
                     >
-                        <Upload /> Вибрати файли
+                        <Upload /> {translate("Вибрати файли")}
                     </Button>
                     <Button
                         type="button"
@@ -157,17 +158,17 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); folderRef.current?.click() }}
                     >
-                        <FolderOpen /> Вибрати папку
+                        <FolderOpen /> {translate("Вибрати папку")}
                     </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    «Вибрати файли» показує файли .dbf, .fpt, .dbt та .cdx. У вікні «Вибрати папку» видно лише папки — файли з них буде додано автоматично.
+                    {translate("«Вибрати файли» показує файли .dbf, .fpt, .dbt та .cdx. У вікні «Вибрати папку» видно лише папки — файли з них буде додано автоматично.")}
                 </p>
                 <input
                     ref={inputRef}
                     type="file"
                     accept=".dbf,.fpt,.dbt,.cdx"
-                    aria-label="Вибрати файли бази даних"
+                    aria-label={translate("Вибрати файли бази даних")}
                     multiple
                     className="hidden"
                     onClick={(e) => e.stopPropagation()}
@@ -184,17 +185,16 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 />
             </div>
 
-            {(notice.skipped || notice.duplicates.length > 0 || orphans.length > 0) && (
+            {(skipped || notice.duplicates.length > 0 || orphans.length > 0) && (
                 <div className="flex flex-col gap-1 border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                    {notice.skipped && <span>{notice.skipped}.</span>}
+                    {skipped && <span>{skipped}.</span>}
                     {notice.duplicates.length > 0 && (
                         <span>
-                            Пропущено {notice.duplicates.length} {plural(notice.duplicates.length, 'файл', 'файли', 'файлів')} з назвою, яка вже є в списку
-                            (таблиці зіставляються за назвою): {notice.duplicates.slice(0, 5).join(', ')}{notice.duplicates.length > 5 ? ', …' : ''}
+                            {translate("Пропущено")} {notice.duplicates.length} {plural(notice.duplicates.length, translate("файл"), translate("файли"), translate("файлів"))} {translate("з назвою, яка вже є в списку (таблиці зіставляються за назвою):")} {notice.duplicates.slice(0, 5).join(', ')}{notice.duplicates.length > 5 ? ', …' : ''}
                         </span>
                     )}
                     {orphans.length > 0 && (
-                        <span>Не надсилаються — memo- та індексні файли без свого .dbf: {orphans.map((f) => f.name).join(', ')}</span>
+                        <span>{translate("Не надсилаються — memo- та індексні файли без свого .dbf:")} {orphans.map((f) => f.name).join(', ')}</span>
                     )}
                 </div>
             )}
@@ -203,21 +203,21 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2 text-xs">
                         <span className="text-muted-foreground tabular-nums">
-                            {tables.length} {plural(tables.length, 'таблиця', 'таблиці', 'таблиць')}
-                            {sideFiles > 0 && ` + ${sideFiles} ${plural(sideFiles, 'memo/індексний файл', 'memo/індексні файли', 'memo/індексних файлів')}`}
+                            {tables.length} {plural(tables.length, translate("таблиця"), translate("таблиці"), translate("таблиць"))}
+                            {sideFiles > 0 && ` + ${sideFiles} ${plural(sideFiles, translate("memo/індексний файл"), translate("memo/індексні файли"), translate("memo/індексних файлів"))}`}
                             {' · '}{formatSize(totalSize)}
                         </span>
-                        <Button variant="ghost" size="sm" onClick={() => { setFiles([]); setNotice({ skipped: null, duplicates: [] }) }}>
-                            <Trash2 /> Очистити
+                        <Button variant="ghost" size="sm" onClick={() => { setFiles([]); setNotice({ skipped: [], duplicates: [] }) }}>
+                            <Trash2 /> {translate("Очистити")}
                         </Button>
                     </div>
                     <Table containerClassName="max-h-72">
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Файл</TableHead>
-                                <TableHead>Тип</TableHead>
-                                <TableHead>Папка</TableHead>
-                                <TableHead className="text-right">Розмір</TableHead>
+                                <TableHead>{translate("Файл")}</TableHead>
+                                <TableHead>{translate("Тип")}</TableHead>
+                                <TableHead>{translate("Папка")}</TableHead>
+                                <TableHead className="text-right">{translate("Розмір")}</TableHead>
                                 <TableHead className="w-12" />
                             </TableRow>
                         </TableHeader>
@@ -231,7 +231,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                                     </TableCell>
                                     <TableCell className="text-right tabular-nums">{formatSize(f.size)}</TableCell>
                                     <TableCell className="text-center">
-                                        <button onClick={() => removeFile(f.name)} className="text-muted-foreground hover:text-destructive" aria-label={`Прибрати ${f.name}`}>
+                                        <button onClick={() => removeFile(f.name)} className="text-muted-foreground hover:text-destructive" aria-label={translate("Прибрати {0}", [f.name])}>
                                             <FileX2 className="size-3.5" />
                                         </button>
                                     </TableCell>
@@ -242,7 +242,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 </div>
             )}
             {tooMany && (
-                <p className="text-sm text-destructive">Таблиць: {tables.length} — не більше {MAX_TABLES} в одній сесії. Приберіть частину або розділіть папку.</p>
+                <p className="text-sm text-destructive">{translate("Таблиць:")} {tables.length} {translate("— не більше")} {MAX_TABLES} {translate("в одній сесії. Приберіть частину або розділіть папку.")}</p>
             )}
             {errorMessage && (
                 <p className="text-sm text-destructive">{errorMessage}</p>
@@ -250,7 +250,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
 
             <div className="flex items-end justify-between gap-4">
                 <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="previewRows" className="text-xs text-muted-foreground">Рядків у перегляді</Label>
+                    <Label htmlFor="previewRows" className="text-xs text-muted-foreground">{translate("Рядків у перегляді")}</Label>
                     <Input
                         id="previewRows"
                         type="number"
@@ -266,8 +266,8 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                     onClick={() => onSubmit(toSend, previewRows)}
                 >
                     { isPending
-                        ? <><Loader2 className="animate-spin" /> Завантаження й читання…</>
-                        : tables.length > 0 ? `Відкрити ${tables.length} ${plural(tables.length, 'таблицю', 'таблиці', 'таблиць')}` : 'Відкрити таблиці'}
+                        ? <><Loader2 className="animate-spin" /> {translate("Завантаження й читання…")}</>
+                        : tables.length > 0 ? translate("Відкрити {0} {1}", [tables.length, plural(tables.length, translate("таблицю"), translate("таблиці"), translate("таблиць"))]) : translate("Відкрити таблиці")}
                 </Button>
             </div>
         </div>

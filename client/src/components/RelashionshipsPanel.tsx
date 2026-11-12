@@ -1,3 +1,4 @@
+import { translate } from '@/i18n';
 import { useState } from 'react';
 import { RelationshipList } from './RelashionshipList';
 import { AddRelationshipForm } from './AddRelationshipList';
@@ -51,10 +52,10 @@ export function RelationshipsPanel({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Зв'язки</h2>
+        <h2 className="text-sm font-semibold">{translate("Зв'язки")}</h2>
         <p className="text-xs text-muted-foreground tabular-nums">
-          усього {stats.total} · за назвою {stats.autoName} · зовнішніх ключів {stats.autoFk} · вручну {stats.manual}
-          {stats.disabled > 0 && ` · вимкнено ${stats.disabled}`}
+          {translate("усього")} {stats.total} {translate("· за назвою")} {stats.autoName} {translate("· зовнішніх ключів")} {stats.autoFk} {translate("· вручну")} {stats.manual}
+          {stats.disabled > 0 && translate(" · вимкнено {0}", [stats.disabled])}
         </p>
       </div>
       <RelationshipList

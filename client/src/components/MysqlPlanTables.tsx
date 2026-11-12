@@ -1,3 +1,4 @@
+import { translate, getLanguage } from '@/i18n';
 import { Fragment, useState } from "react";
 import { CheckCircle2, RotateCcw } from "lucide-react";
 import { Badge } from "./ui/badge";
@@ -24,9 +25,9 @@ import type {
 const TYPE_LIST_ID = 'mysql-type-suggestions'
 
 const FK_SOURCE_LABEL: Readonly<Record<MysqlForeignKeyPlan['source'], string>> = {
-    auto_name: 'збіг назв',
-    auto_fk: 'зовнішній ключ',
-    manual: 'вручну',
+    get auto_name() { return translate("збіг назв") },
+    get auto_fk() { return translate("зовнішній ключ") },
+    get manual() { return translate("вручну") },
 }
 const PK_AUTO = '__auto__'
 const PK_NONE = '__none__'
@@ -69,28 +70,28 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="text-sm font-semibold">
-                        Відповідність стовпців
+                        {translate("Відповідність стовпців")}
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            назви й типи редагуються прямо тут · застосовується за Enter або при виході з поля · порожньо = автоматично
+                            {translate("назви й типи редагуються прямо тут · застосовується за Enter або при виході з поля · порожньо = автоматично")}
                         </span>
                     </h3>
                     {hasEdits && (
                         <Button variant="outline" size="sm" onClick={edits.onReset}>
-                            <RotateCcw /> Скинути всі зміни
+                            <RotateCcw /> {translate("Скинути всі зміни")}
                         </Button>
                     )}
                 </div>
                 <Table containerClassName="max-h-[70vh]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-12 text-center" title="Експортувати це поле">Вкл.</TableHead>
-                            <TableHead>Поле DBF</TableHead>
-                            <TableHead>Тип DBF</TableHead>
-                            <TableHead>Стовпець MySQL</TableHead>
-                            <TableHead>Тип MySQL</TableHead>
+                            <TableHead className="w-12 text-center" title={translate("Експортувати це поле")}>{translate("Вкл.")}</TableHead>
+                            <TableHead>{translate("Поле DBF")}</TableHead>
+                            <TableHead>{translate("Тип DBF")}</TableHead>
+                            <TableHead>{translate("Стовпець MySQL")}</TableHead>
+                            <TableHead>{translate("Тип MySQL")}</TableHead>
                             <TableHead>Null</TableHead>
-                            <TableHead>Ключ</TableHead>
-                            <TableHead>Примітка</TableHead>
+                            <TableHead>{translate("Ключ")}</TableHead>
+                            <TableHead>{translate("Примітка")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -108,25 +109,25 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
 
             <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold">
-                    Зовнішні ключі
+                    {translate("Зовнішні ключі")}
                     <span className="ml-2 font-normal text-muted-foreground">
-                        буде створено: {created}, пропущено: {plan.foreignKeys.length - created}
+                        {translate("буде створено:")} {created}{translate(", пропущено:")} {plan.foreignKeys.length - created}
                     </span>
                 </h3>
                 {plan.foreignKeys.length === 0 ? (
                     <div className="flex h-16 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                        Немає зв'язків, з яких можна зробити зовнішні ключі.
+                        {translate("Немає зв'язків, з яких можна зробити зовнішні ключі.")}
                     </div>
                 ) : (
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Статус</TableHead>
-                                <TableHead>Дочірній стовпець</TableHead>
+                                <TableHead>{translate("Статус")}</TableHead>
+                                <TableHead>{translate("Дочірній стовпець")}</TableHead>
                                 <TableHead className="w-10 text-center">→</TableHead>
-                                <TableHead>Батьківський стовпець</TableHead>
-                                <TableHead>Як знайдено</TableHead>
-                                <TableHead>Обмеження / причина</TableHead>
+                                <TableHead>{translate("Батьківський стовпець")}</TableHead>
+                                <TableHead>{translate("Як знайдено")}</TableHead>
+                                <TableHead>{translate("Обмеження / причина")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -134,8 +135,8 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
                                 <TableRow key={`${fk.childTable}.${fk.childColumn}-${fk.parentTable}.${fk.parentColumn}-${i}`}>
                                     <TableCell>
                                         {fk.status === 'create'
-                                            ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">створити</Badge>
-                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">пропустити</Badge>}
+                                            ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">{translate("створити")}</Badge>
+                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">{translate("пропустити")}</Badge>}
                                     </TableCell>
                                     <TableCell>{fk.childTable}.{fk.childColumn}</TableCell>
                                     <TableCell className="text-center text-muted-foreground">→</TableCell>
@@ -158,7 +159,7 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
 
             {plan.warnings.length > 0 && (
                 <div className="flex flex-col gap-2">
-                    <h3 className="text-sm font-semibold">Попередження</h3>
+                    <h3 className="text-sm font-semibold">{translate("Попередження")}</h3>
                     <Table>
                         <TableBody>
                             {plan.warnings.map((w) => (
@@ -191,35 +192,36 @@ export function QualityTable({ engine, quality, rows, dataChecked }: QualityTabl
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
-                Якість даних
+                {translate("Якість даних")}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {mysql ? 'кожен запис звірено з типами MySQL ще до відправлення' : 'кожен запис прочитано так, як він піде в MongoDB, ще до відправлення'}
+                    {mysql ? translate("кожен запис звірено з типами MySQL ще до відправлення") : translate("кожен запис прочитано так, як він піде в MongoDB, ще до відправлення")}
                 </span>
             </h3>
             {!dataChecked ? (
-                <p className="text-xs text-muted-foreground">Дані не входять в експорт, тому значення не перевірялися.</p>
+                <p className="text-xs text-muted-foreground">{translate("Дані не входять в експорт, тому значення не перевірялися.")}</p>
             ) : quality.length === 0 ? (
                 <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="size-3.5" />
-                    Проблем немає — усі рядки ({rows.toLocaleString()}) надійдуть без змін.
+                    {translate("Проблем немає — усі рядки ({0}) надійдуть без змін.", [rows.toLocaleString(getLanguage())])}
                 </p>
             ) : (
                 <>
                     {failing > 0 && (
                         <p className="text-xs text-destructive">
-                            Проблем, через які {engine} відхилить {mysql ? 'рядки' : 'документи'}: {failing} — імпорт заблоковано, доки їх не виправлено
-                            ({mysql ? 'змініть тип стовпця, виберіть' : 'виберіть'} інший первинний ключ або виключіть поле нижче).
+                            {translate(mysql
+                              ? "Проблеми, через які MySQL відхилить рядки: {0}. Імпорт заблоковано. Змініть тип стовпця, виберіть інший первинний ключ або виключіть поле нижче."
+                              : "Проблеми, через які MongoDB відхилить документи: {0}. Імпорт заблоковано. Виберіть інший первинний ключ або виключіть поле нижче.", [failing])}
                         </p>
                     )}
                     <Table containerClassName="max-h-[50vh]">
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Наслідок</TableHead>
-                                <TableHead>{mysql ? 'Стовпець' : 'Поле'}</TableHead>
-                                <TableHead>Поле DBF</TableHead>
-                                <TableHead>Проблема</TableHead>
-                                <TableHead className="text-right">Значень</TableHead>
-                                <TableHead>Приклади (як у DBF)</TableHead>
+                                <TableHead>{translate("Наслідок")}</TableHead>
+                                <TableHead>{mysql ? translate("Стовпець") : translate("Поле")}</TableHead>
+                                <TableHead>{translate("Поле DBF")}</TableHead>
+                                <TableHead>{translate("Проблема")}</TableHead>
+                                <TableHead className="text-right">{translate("Значень")}</TableHead>
+                                <TableHead>{translate("Приклади (як у DBF)")}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -227,13 +229,13 @@ export function QualityTable({ engine, quality, rows, dataChecked }: QualityTabl
                                 <TableRow key={`${q.table}.${q.column}.${q.problem}`}>
                                     <TableCell>
                                         {q.effect === 'fail'
-                                            ? <Badge variant="outline" className="border-destructive/40 text-destructive">імпорт впаде</Badge>
-                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">стане NULL</Badge>}
+                                            ? <Badge variant="outline" className="border-destructive/40 text-destructive">{translate("імпорт впаде")}</Badge>
+                                            : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">{translate("стане NULL")}</Badge>}
                                     </TableCell>
                                     <TableCell className="font-medium">{q.table}.{q.column}</TableCell>
                                     <TableCell className="text-muted-foreground">{q.fileName} · {q.dbfField}</TableCell>
                                     <TableCell className="whitespace-normal">{q.problem}</TableCell>
-                                    <TableCell className="text-right tabular-nums">{q.count.toLocaleString()}</TableCell>
+                                    <TableCell className="text-right tabular-nums">{q.count.toLocaleString(getLanguage())}</TableCell>
                                     <TableCell className="text-muted-foreground">
                                         <span className="block max-w-[28rem] truncate" title={q.examples.join('\n')}>
                                             {q.examples.length > 0 ? q.examples.map((e) => `«${e}»`).join(', ') : '—'}
@@ -252,10 +254,10 @@ export function QualityTable({ engine, quality, rows, dataChecked }: QualityTabl
 // ---------------------------------------------------------------- indexes
 
 const INDEX_STATUS: Readonly<Record<MysqlIndexPlan['status'], { label: string; className: string }>> = {
-    create: { label: 'створити', className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' },
-    primary: { label: 'первинний ключ', className: 'border-sky-500/30 text-sky-700 dark:text-sky-300' },
-    skip: { label: 'пропустити', className: 'border-amber-500/30 text-amber-700 dark:text-amber-300' },
-    excluded: { label: 'вимкнено', className: 'text-muted-foreground' },
+    create: { get label() { return translate("створити") }, className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' },
+    primary: { get label() { return translate("первинний ключ") }, className: 'border-sky-500/30 text-sky-700 dark:text-sky-300' },
+    skip: { get label() { return translate("пропустити") }, className: 'border-amber-500/30 text-amber-700 dark:text-amber-300' },
+    excluded: { get label() { return translate("вимкнено") }, className: 'text-muted-foreground' },
 }
 
 function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & PlanEdits) {
@@ -273,26 +275,26 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
-                Індекси з .CDX
+                {translate("Індекси з .CDX")}
                 <span className="ml-2 font-normal text-muted-foreground">
-                    буде створено: {created}, не буде: {rows.length - created} · з індексних файлів: {withFile}
+                    {translate("буде створено:")} {created}{translate(", не буде:")} {rows.length - created} {translate("· з індексних файлів:")} {withFile}
                 </span>
             </h3>
             {rows.length === 0 ? (
                 <div className="flex h-16 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                    У завантажених файлах .CDX немає тегів.
+                    {translate("У завантажених файлах .CDX немає тегів.")}
                 </div>
             ) : (
                 <Table containerClassName="max-h-[50vh]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-12 text-center">Вкл.</TableHead>
-                            <TableHead>Статус</TableHead>
-                            <TableHead>Таблиця</TableHead>
-                            <TableHead>Тег CDX</TableHead>
-                            <TableHead>Вираз FoxPro</TableHead>
-                            <TableHead>Індекс MySQL</TableHead>
-                            <TableHead>Примітка</TableHead>
+                            <TableHead className="w-12 text-center">{translate("Вкл.")}</TableHead>
+                            <TableHead>{translate("Статус")}</TableHead>
+                            <TableHead>{translate("Таблиця")}</TableHead>
+                            <TableHead>{translate("Тег CDX")}</TableHead>
+                            <TableHead>{translate("Вираз FoxPro")}</TableHead>
+                            <TableHead>{translate("Індекс MySQL")}</TableHead>
+                            <TableHead>{translate("Примітка")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -307,7 +309,7 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
                                             className="size-3.5 cursor-pointer accent-primary align-middle disabled:cursor-default"
                                             checked={ix.status === 'create' || ix.status === 'primary'}
                                             disabled={!switchable}
-                                            aria-label={`Створити індекс ${ix.tag} у ${t.table}`}
+                                            aria-label={translate("Створити індекс {0} у {1}", [ix.tag, t.table])}
                                             onChange={(e) => toggle(t.fileName, ix.tag, e.target.checked)}
                                         />
                                     </TableCell>
@@ -315,8 +317,8 @@ function IndexTable({ plan, overrides, onTable }: { plan: MysqlExportPlan } & Pl
                                     <TableCell>{t.table}</TableCell>
                                     <TableCell className="font-medium">
                                         {ix.tag}
-                                        {ix.candidate && <span className="ml-1.5 text-xs font-normal text-muted-foreground">кандидат</span>}
-                                        {ix.unique && <span className="ml-1.5 text-xs font-normal text-muted-foreground">унікальний</span>}
+                                        {ix.candidate && <span className="ml-1.5 text-xs font-normal text-muted-foreground">{translate("кандидат")}</span>}
+                                        {ix.unique && <span className="ml-1.5 text-xs font-normal text-muted-foreground">{translate("унікальний")}</span>}
                                     </TableCell>
                                     <TableCell className="font-mono text-xs">
                                         {ix.expression}
@@ -380,7 +382,7 @@ export function EditableCell({
             disabled={disabled}
             list={list}
             aria-invalid={error !== null}
-            title={error ?? (edited ? 'Змінено вами — очистьте поле, щоб повернути автоматичне значення' : undefined)}
+            title={error ?? (edited ? translate("Змінено вами — очистьте поле, щоб повернути автоматичне значення") : undefined)}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
             onKeyDown={(e) => {
@@ -397,8 +399,8 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
     const included = t.columns.filter((c) => !c.excluded)
     const pkValue = override.primaryKey === undefined ? PK_AUTO : override.primaryKey === null ? PK_NONE : override.primaryKey
     const pkItems = [
-        { value: PK_AUTO, label: 'автоматично' },
-        { value: PK_NONE, label: 'немає' },
+        { value: PK_AUTO, get label() { return translate("автоматично") } },
+        { value: PK_NONE, get label() { return translate("немає") } },
         ...included.map((c) => ({ value: c.dbfField, label: c.column })),
     ]
 
@@ -409,7 +411,7 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
                     type="checkbox"
                     className="size-3.5 cursor-pointer accent-primary align-middle"
                     checked={!override.exclude}
-                    aria-label={`Експортувати ${t.fileName}`}
+                    aria-label={translate("Експортувати {0}", [t.fileName])}
                     onChange={(e) => onTable(t.fileName, { exclude: e.target.checked ? undefined : true })}
                 />
             </TableCell>
@@ -426,11 +428,11 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
                         className="w-48"
                     />
                     {t.excluded ? (
-                        <span className="text-muted-foreground">не входить в експорт</span>
+                        <span className="text-muted-foreground">{translate("не входить в експорт")}</span>
                     ) : (
                         <>
                             <span className="flex items-center gap-2 text-muted-foreground">
-                                первинний ключ
+                                {translate("первинний ключ")}
                                 <Select
                                     items={pkItems}
                                     value={pkValue}
@@ -447,14 +449,14 @@ function TableGroupRow({ table: t, overrides, onTable, syncMode }: { table: Mysq
                                 </Select>
                             </span>
                             <span className="font-normal text-muted-foreground">
-                                стовпців: {included.length} з {t.columns.length} · рядків: {t.rowCount.toLocaleString()} · {t.encoding}
+                                {translate("стовпців:")} {included.length} {translate("з")} {t.columns.length} {translate("· рядків:")} {t.rowCount.toLocaleString(getLanguage())} · {t.encoding}
                                 {t.deletedRows > 0 && (t.deletedTable
-                                    ? ` · видалених: ${t.deletedRows.toLocaleString()} → ${t.deletedTable}`
-                                    : ` · видалених: ${t.deletedRows.toLocaleString()} (пропускаються)`)}
+                                    ? translate(" · видалених: {0} → {1}", [t.deletedRows.toLocaleString(getLanguage()), t.deletedTable])
+                                    : translate(" · видалених: {0} (пропускаються)", [t.deletedRows.toLocaleString(getLanguage())]))}
                                 {t.memoFile && ` · memo ${t.memoFile}`}
-                                {t.indexFile && ` · індекси ${t.indexFile}`}
-                                {syncMode && t.sync === 'reload' && ' · немає первинного ключа: синхронізація завантажує таблицю заново'}
-                                {t.skippedFields.length > 0 && ` · немає типу MySQL для ${t.skippedFields.join(', ')}`}
+                                {t.indexFile && translate(" · індекси {0}", [t.indexFile])}
+                                {syncMode && t.sync === 'reload' && translate(" · немає первинного ключа: синхронізація завантажує таблицю заново")}
+                                {t.skippedFields.length > 0 && translate(" · немає типу MySQL для {0}", [t.skippedFields.join(', ')])}
                             </span>
                         </>
                     )}
@@ -474,7 +476,7 @@ function ColumnMappingRow({ table: t, column: c, overrides, onColumn }: { table:
                     type="checkbox"
                     className="size-3.5 cursor-pointer accent-primary align-middle"
                     checked={!c.excluded}
-                    aria-label={`Експортувати ${t.fileName}.${c.dbfField}`}
+                    aria-label={translate("Експортувати {0}.{1}", [t.fileName, c.dbfField])}
                     onChange={(e) => onColumn(t.fileName, c.dbfField, { exclude: e.target.checked ? undefined : true })}
                 />
             </TableCell>
@@ -508,9 +510,9 @@ function ColumnMappingRow({ table: t, column: c, overrides, onColumn }: { table:
                     edited={c.typeOverridden}
                 />
             </TableCell>
-            <TableCell>{c.excluded ? '' : c.nullable ? 'так' : 'ні'}</TableCell>
+            <TableCell>{c.excluded ? '' : c.nullable ? translate("так") : translate("ні")}</TableCell>
             <TableCell>{c.excluded ? '' : c.key ?? '—'}</TableCell>
-            <TableCell className="text-muted-foreground">{c.excluded ? 'не експортується' : c.note ?? ''}</TableCell>
+            <TableCell className="text-muted-foreground">{c.excluded ? translate("не експортується") : c.note ?? ''}</TableCell>
         </TableRow>
     )
 }
