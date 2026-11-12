@@ -149,6 +149,8 @@ interface ColumnSpec {
     collation: string | null
     nullable: boolean
     key: MysqlColumnKey
+    /** Values with no row in the referenced parent(s) ("table.column"); written as NULL so the foreign key can exist. */
+    orphans: { readonly values: Set<string>; readonly parents: string[] } | null
 }
 
 interface DecodeContext {
@@ -202,6 +204,20 @@ function decodeValue(
         }
     }
 }
+
+/** The value as it is written for a live record: a child value with no parent row becomes NULL. */
+function exportValue(
+    column: ColumnSpec,
+    record: Buffer,
+    context: DecodeContext,
+    emptyStringsAsNull: boolean,
+): string | null {
+    const value = decodeValue(column, record, context, emptyStringsAsNull)
+    return value !== null && column.orphans?.values.has(value) ? null : value
+}
+
+const orphanProblem = (column: ColumnSpec): string =>
+    `немає в ${column.orphans!.parents.join(' / ')} — записується NULL, щоб зв'язок існував`
 
 /**
  * For a value that decoded to NULL: why data was lost, or null when the DBF cell was simply blank.
@@ -438,7 +454,8 @@ export interface ExpectedTable {
 }
 
 interface ColumnStats {
-    readonly values: Set<string>
+    /** Each non-NULL value and the number of rows holding it. */
+    readonly values: Map<string, number>
     unique: boolean
     hasNull: boolean
 }
@@ -465,10 +482,10 @@ const RELATIONSHIP_PRIORITY: Readonly<Record<RelationshipKind, number>> = {
     auto_name: 2,
 }
 
-// Every table tends to have these; two tables sharing one says nothing about a relationship.
-const GENERIC_FIELD_NAMES: ReadonlySet<string> = new Set([
-    'ID', 'CODE', 'KOD', 'KEY', 'NUM', 'NO', 'NR', 'N', 'NAME', 'NAIM', 'TYPE', 'TIP', 'DATE', 'DATA',
-])
+// A guessed link is taken with values missing from the parent only while they are a minority of the
+// child's rows; beyond that the guess is more likely wrong than the data. User links have no limit.
+const MAX_ORPHAN_SHARE = 0.25
+const ORPHAN_EXAMPLES = 5
 
 /** A column as a document database sees it: a name and how its values decode. */
 export interface DocumentColumn {
@@ -668,7 +685,9 @@ export class MysqlExportService {
                     for (const record of iterateRecords(t.source, t.result.header, set)) {
                         yield {
                             recno: recordNumberOf(t.source, t.result.header, record),
-                            values: columns.map(c => decodeValue(c, record, t, options.emptyStringsAsNull)),
+                            values: columns.map(c => set === 'deleted'
+                                ? decodeValue(c, record, t, options.emptyStringsAsNull)
+                                : exportValue(c, record, t, options.emptyStringsAsNull)),
                         }
                     }
                 },
@@ -752,6 +771,7 @@ export class MysqlExportService {
                     collation: null,
                     nullable: true,
                     key: null,
+                    orphans: null,
                 })
             }
 
@@ -921,10 +941,6 @@ export class MysqlExportService {
                 skipRaw(rel, 'стовпець не може посилатися сам на себе')
                 continue
             }
-            if (rel.kind === 'auto_name' && GENERIC_FIELD_NAMES.has(rel.sourceField.toUpperCase())) {
-                skipRaw(rel, `"${rel.sourceField}" — надто загальна назва, щоб лише за нею вгадувати зв'язок; додайте його вручну, якщо таблиці справді пов'язані`)
-                continue
-            }
             if (!isKeyableType(source.column.mysqlType) || !isKeyableType(target.column.mysqlType)) {
                 skipRaw(rel, 'стовпці TEXT/BLOB не можуть входити до зовнішнього ключа — використайте VARCHAR(n)')
                 continue
@@ -961,21 +977,39 @@ export class MysqlExportService {
             source: rel.kind,
         })
 
-        // A direction works when the parent column is unique and holds every child value.
+        // A direction works when the parent column is unique; child values it does not hold are orphans.
         const evaluate = (parent: Endpoint, child: Endpoint) => {
             const parentStats = stats.get(parent.column)!
             const childStats = stats.get(child.column)!
             if (!parentStats.unique || parentStats.values.size === 0)
                 return { parent, child, parentStats, orphans: null }
-            let count = 0
-            let example: string | null = null
-            for (const v of childStats.values) {
+            const values: string[] = []
+            let rows = 0
+            let childRows = 0
+            for (const [v, n] of childStats.values) {
+                childRows += n
                 if (!parentStats.values.has(v)) {
-                    count++
-                    example ??= v
+                    values.push(v)
+                    rows += n
                 }
             }
-            return { parent, child, parentStats, orphans: { count, example } }
+            return { parent, child, parentStats, orphans: { values, rows, childRows } }
+        }
+        type Direction = ReturnType<typeof evaluate>
+
+        // Orphans become NULL: allowed in a plain nullable column that nothing else refers to,
+        // and for a guessed link only while they are a minority of the child's rows.
+        const orphansBlocker = (rel: DbfRelationship, d: Direction): string | null => {
+            const o = d.orphans!
+            if (!options.orphansAsNull)
+                return 'увімкніть «Значення без відповідника → NULL», щоб створити ключ'
+            if (d.child.column.key !== null || !d.child.column.nullable)
+                return `${d.child.table.table}.${d.child.column.column} — ключ таблиці, NULL у нього не записати`
+            if (accepted.some(a => a.parent.column === d.child.column))
+                return `на ${d.child.table.table}.${d.child.column.column} уже посилається інша таблиця`
+            if (rel.kind !== 'manual' && o.rows > o.childRows * MAX_ORPHAN_SHARE)
+                return `це ${Math.round(o.rows / o.childRows * 100)}% рядків — схоже, що таблиці не пов'язані; якщо пов'язані, додайте зв'язок вручну, і ці значення стануть NULL`
+            return null
         }
 
         for (const { rel, source, target } of candidates) {
@@ -988,11 +1022,12 @@ export class MysqlExportService {
                     b.parentStats.values.size - a.parentStats.values.size)
             }
 
-            const chosen = directions.find(d => d.orphans?.count === 0)
+            const usable = directions.filter(d => d.orphans !== null)
+            const byOrphanRows = [...usable].sort((a, b) => a.orphans!.rows - b.orphans!.rows)
+            const chosen = usable.find(d => d.orphans!.values.length === 0) ??
+                byOrphanRows.find(d => orphansBlocker(rel, d) === null)
             if (!chosen) {
-                const closest = directions
-                    .filter(d => d.orphans !== null)
-                    .sort((a, b) => a.orphans!.count - b.orphans!.count)[0]
+                const closest = byOrphanRows[0]
                 if (!closest) {
                     foreignKeys.push({
                         ...linkBase(rel, directions[0]!.parent, directions[0]!.child), name: '', status: 'skip',
@@ -1000,9 +1035,10 @@ export class MysqlExportService {
                     })
                 } else {
                     const base = linkBase(rel, closest.parent, closest.child)
+                    const o = closest.orphans!
                     foreignKeys.push({
                         ...base, name: '', status: 'skip',
-                        reason: `значень у ${base.childTable}.${base.childColumn} без відповідника в ${base.parentTable}.${base.parentColumn}: ${closest.orphans!.count} (напр. '${closest.orphans!.example}')`,
+                        reason: `значень у ${base.childTable}.${base.childColumn} без відповідника в ${base.parentTable}.${base.parentColumn}: ${o.values.length} у ${o.rows} ${plural(o.rows, 'рядку', 'рядках', 'рядках')} (напр. '${o.values[0]}') — ${orphansBlocker(rel, closest)}`,
                     })
                 }
                 continue
@@ -1018,6 +1054,14 @@ export class MysqlExportService {
                 foreignKeys.push({
                     ...base, name: '', status: 'skip',
                     reason: `${base.childTable}.${base.childColumn} уже посилається на ${existing.parent.table.table}.${existing.parent.column.column}`,
+                })
+                continue
+            }
+            // A column whose values were set to NULL cannot be referred to: those rows would lose their parent.
+            if (parent.column.orphans) {
+                foreignKeys.push({
+                    ...base, name: '', status: 'skip',
+                    reason: `у ${base.parentTable}.${base.parentColumn} значення без відповідника замінюються на NULL (зв'язок з ${parent.column.orphans.parents.join(' / ')}), тож на нього не можна посилатися`,
                 })
                 continue
             }
@@ -1039,7 +1083,22 @@ export class MysqlExportService {
 
             const name = uniqueName(toIdentifier(`fk_${base.childTable}_${base.childColumn}`, 'fk'), takenNames)
             accepted.push({ name, child, parent })
-            foreignKeys.push({ ...base, name, status: 'create' })
+            const missing = chosen.orphans!.values
+            if (missing.length > 0) {
+                const where = `${base.parentTable}.${base.parentColumn}`
+                if (child.column.orphans) {
+                    for (const v of missing) child.column.orphans.values.add(v)
+                    child.column.orphans.parents.push(where)
+                } else {
+                    child.column.orphans = { values: new Set(missing), parents: [where] }
+                }
+            }
+            foreignKeys.push({
+                ...base, name, status: 'create',
+                orphans: missing.length > 0
+                    ? { values: missing.length, rows: chosen.orphans!.rows, examples: missing.slice(0, ORPHAN_EXAMPLES) }
+                    : undefined,
+            })
         }
 
         // InnoDB wants identical integer types on both ends; repeat so chains settle.
@@ -1197,14 +1256,18 @@ export class MysqlExportService {
         options: MysqlExportOptions,
     ): Map<ColumnSpec, ColumnStats> {
         const stats = new Map<ColumnSpec, ColumnStats>(
-            columns.map(c => [c, { values: new Set<string>(), unique: true, hasNull: false }]),
+            columns.map(c => [c, { values: new Map<string, number>(), unique: true, hasNull: false }]),
         )
         for (const record of iterateRecords(table.source, table.result.header)) {
             for (const [column, s] of stats) {
                 const value = decodeValue(column, record, table, options.emptyStringsAsNull)
-                if (value === null) s.hasNull = true
-                else if (s.values.has(value)) s.unique = false
-                else s.values.add(value)
+                if (value === null) {
+                    s.hasNull = true
+                    continue
+                }
+                const n = s.values.get(value) ?? 0
+                if (n > 0) s.unique = false
+                s.values.set(value, n + 1)
             }
         }
         return stats
@@ -1260,6 +1323,10 @@ export class MysqlExportService {
                 for (const record of iterateRecords(table.source, table.result.header, set)) {
                     for (const column of columns) {
                         const value = decodeValue(column, record, table, options.emptyStringsAsNull)
+                        if (keyed && value !== null && column.orphans?.values.has(value)) {
+                            report(table, target, column, orphanProblem(column), 'null', value)
+                            continue
+                        }
                         if (value === null) {
                             const loss = lossReason(column, record, table.memo)
                             if (loss) report(table, target, column, loss, 'null', rawDisplay(column, record, table.decoder))
@@ -1416,8 +1483,9 @@ export class MysqlExportService {
         }
 
         for (const record of iterateRecords(table.source, table.result.header, set)) {
+            // The deleted copy has no foreign keys, so it keeps every value as the DBF has it.
             const values = columns.map(c =>
-                sqlLiteral(c.kind, decodeValue(c, record, table, options.emptyStringsAsNull)))
+                sqlLiteral(c.kind, (deleted ? decodeValue : exportValue)(c, record, table, options.emptyStringsAsNull)))
             if (deleted) values.unshift(String(recordNumberOf(table.source, table.result.header, record)))
             const row = `(${values.join(', ')})`
             batch.push(row)

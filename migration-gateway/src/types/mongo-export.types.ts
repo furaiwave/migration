@@ -1,6 +1,6 @@
 import type { DbfFieldTypeCode } from "./dbf-field.types";
 import type { RelationshipKind } from "./dbf-relationship.types";
-import type { MysqlExportOptions, MysqlQualityIssue, MysqlWriteMode } from "./mysql-export.types";
+import type { MysqlExportOptions, MysqlOrphans, MysqlQualityIssue, MysqlWriteMode } from "./mysql-export.types";
 
 /**
  * Same options as the MySQL export: names, exclusions, primary key and switched-off .CDX tags carry
@@ -68,6 +68,8 @@ export interface MongoReferencePlan {
     readonly source: RelationshipKind
     readonly status: 'create' | 'skip'
     readonly reason?: string
+    /** Created although some child values are missing from the parent: they are written as null. */
+    readonly orphans?: MysqlOrphans
 }
 
 export interface MongoExportPlan {

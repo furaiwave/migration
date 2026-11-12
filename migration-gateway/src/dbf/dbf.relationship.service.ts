@@ -50,6 +50,13 @@ function relKey(r: {
 // Repeated descriptive fields (PRIM, SUMMA, DATE_IZM...) do not identify relationships.
 const MAX_TABLES_PER_NAME_MATCH = 4
 
+// Every table tends to have these (its own code, its name, a date); two tables sharing one say
+// nothing about a relationship. They still link when a field is named after a table (KOD_PODR).
+const GENERIC_FIELD_NAMES: ReadonlySet<string> = new Set([
+    'id', 'code', 'kod', 'key', 'num', 'no', 'nr', 'n', 'name', 'naim', 'naimen', 'type', 'tip',
+    'date', 'data', 'prim', 'comment',
+])
+
 function reversed<T extends { sourceFile: string, sourceField: string, targetFile: string, targetField: string }>(r: T): T {
     return { ...r, sourceFile: r.targetFile, sourceField: r.targetField, targetFile: r.sourceFile, targetField: r.sourceField }
 }
@@ -70,7 +77,7 @@ export class DbfRelationshipService {
                 const [fileA, resultA] = entries[i]!
                 const [fileB, resultB] = entries[j]!
                 for (const fa of resultA.header.fields) {
-                    if (!linkable(fa)) continue
+                    if (!linkable(fa) || GENERIC_FIELD_NAMES.has(normalizeName(fa.name))) continue
                     if (!isIdentifierName(fa.name) &&
                         (spread.get(`${normalizeName(fa.name)}:${fieldFamily(fa)}`) ?? 0) > MAX_TABLES_PER_NAME_MATCH) continue
                     for (const fb of resultB.header.fields) {
@@ -109,7 +116,10 @@ export class DbfRelationshipService {
         for (const [sourceFile, result] of files) {
             for (const field of result.header.fields) {
                 if (!linkable(field)) continue
-                const targetName = extractFkTarget(field.name)
+                // KOD_PODR / PODR_ID name the table they point to; so does a field named just PODR or DOLGN.
+                const marked = extractFkTarget(field.name)
+                const bare = normalizeName(field.name)
+                const targetName = marked ?? (exact.has(bare) || singular.has(bare) ? bare : null)
                 if (!targetName) continue
                 const matches = exact.get(targetName) ?? singular.get(targetName)
                 if (!matches || matches.size !== 1) continue
@@ -125,7 +135,7 @@ export class DbfRelationshipService {
 
                 results.push({
                     kind: 'auto_fk',
-                    confidence: targetField === sameName || targetField === equivalent || normalizeName(targetField.name) === 'id' ? 'high' : 'medium',
+                    confidence: marked && (targetField === sameName || targetField === equivalent || normalizeName(targetField.name) === 'id') ? 'high' : 'medium',
                     sourceFile, sourceField: field.name,
                     targetFile, targetField: targetField.name,
                     inferredFrom: field.name,

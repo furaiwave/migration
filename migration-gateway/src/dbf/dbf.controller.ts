@@ -61,6 +61,7 @@ class MysqlExportDto {
     @IsOptional() @IsBoolean() keepDeleted?: boolean
     @IsOptional() @IsBoolean() indexes?: boolean
     @IsOptional() @IsBoolean() emptyStringsAsNull?: boolean
+    @IsOptional() @IsBoolean() orphansAsNull?: boolean
     // Free-form here; normalizeOverrides checks every name and type before they reach DDL.
     @IsOptional() @IsObject() overrides?: Record<string, unknown>
 }
@@ -105,6 +106,7 @@ function toExportOptions(dto: MysqlExportDto): MysqlExportOptions {
         keepDeleted: dto.keepDeleted ?? false,
         indexes: dto.indexes ?? true,
         emptyStringsAsNull: dto.emptyStringsAsNull ?? true,
+        orphansAsNull: dto.orphansAsNull ?? true,
         overrides: normalizeOverrides(dto.overrides),
     }
 }

@@ -151,7 +151,7 @@ describe('DbfRelationshipService', () => {
         }
         const options: MysqlExportOptions = {
             includeData: true, foreignKeys: true, writeMode: 'replace', syncDeletes: false,
-            keepDeleted: false, indexes: false, emptyStringsAsNull: true, overrides: {},
+            keepDeleted: false, indexes: false, emptyStringsAsNull: true, orphansAsNull: true, overrides: {},
         }
         const graph = service.buildGraph(parsed)
         expect(graph.stats.autoName).toBe(15)
@@ -161,5 +161,102 @@ describe('DbfRelationshipService', () => {
         expect(created.every(fk => fk.parentTable === 't0' && fk.parentColumn === 'nom')).toBe(true)
         expect(created.some(fk => fk.childTable === 't5')).toBe(false)
         expect(plan.foreignKeys.some(fk => fk.childTable === 't5' && fk.status === 'skip')).toBe(true)
+    })
+
+    it('links a field named after a table to that table\'s key', () => {
+        const graph = service.buildGraph(files(
+            ['SOTR.DBF', table([['DOLGN', 'C']])],
+            ['DOLGN.DBF', table([['KOD', 'C'], ['NAIM', 'C']])],
+        ))
+        expect(graph.relationships).toEqual([expect.objectContaining({
+            kind: 'auto_fk', confidence: 'medium', sourceField: 'DOLGN', targetFile: 'DOLGN.DBF', targetField: 'KOD',
+        })])
+    })
+
+    it('does not offer links between generic fields every table has', () => {
+        const graph = service.buildGraph(files(
+            ['PODR.DBF', table([['KOD', 'N'], ['NAIM', 'C']])],
+            ['VIDOPL.DBF', table([['KOD', 'N'], ['NAIM', 'C']])],
+        ))
+        expect(graph.relationships).toHaveLength(0)
+    })
+})
+
+/** A dBASE III table of character fields: [name, length] each, rows as text. */
+function charTable(fields: readonly (readonly [string, number])[], rows: readonly (readonly string[])[]): Buffer {
+    const headerLength = 32 + fields.length * 32 + 1
+    const recordLength = 1 + fields.reduce((n, [, len]) => n + len, 0)
+    const buffer = Buffer.alloc(headerLength + rows.length * recordLength + 1, 0x20)
+    buffer.fill(0, 0, headerLength)
+    buffer[0] = 0x03
+    buffer.writeUInt32LE(rows.length, 4)
+    buffer.writeUInt16LE(headerLength, 8)
+    buffer.writeUInt16LE(recordLength, 10)
+    fields.forEach(([name, len], i) => {
+        buffer.write(name, 32 + i * 32, 'ascii')
+        buffer[32 + i * 32 + 11] = 'C'.charCodeAt(0)
+        buffer[32 + i * 32 + 16] = len
+    })
+    buffer[headerLength - 1] = 0x0d
+    rows.forEach((row, r) => {
+        let at = headerLength + r * recordLength + 1
+        row.forEach((value, i) => {
+            buffer.write(value, at, 'ascii')
+            at += fields[i]![1]
+        })
+    })
+    buffer[buffer.length - 1] = 0x1a
+    return buffer
+}
+
+describe('MysqlExportService links with values missing from the parent', () => {
+    const relationships = new DbfRelationshipService()
+    const options: MysqlExportOptions = {
+        includeData: true, foreignKeys: true, writeMode: 'replace', syncDeletes: false,
+        keepDeleted: false, indexes: false, emptyStringsAsNull: true, orphansAsNull: true, overrides: {},
+    }
+
+    // 20 staff; department "0" means "not set" (2 rows) and department 9 was deleted long ago (1 row).
+    function session(): DbfSession {
+        const staff = Array.from({ length: 20 }, (_, i) => [String(i + 1), i === 3 || i === 7 ? '0' : i === 11 ? '9' : String(i % 3 + 1)])
+        const sources = new Map([
+            [toFileName('PODR.DBF'), { dbf: charTable([['KOD', 3], ['NAIM', 10]], [['1', 'A'], ['2', 'B'], ['3', 'C']]), memo: null, index: null }],
+            [toFileName('SOTR.DBF'), { dbf: charTable([['TAB_NOM', 4], ['KOD_PODR', 3]], staff), memo: null, index: null }],
+        ])
+        const parsed = new Map([...sources].map(([name, s]) => [name, parseTable(name, s.dbf, null, null, 0, null)]))
+        return {
+            id: toSessionId('orphans'), createdAt: new Date(), files: parsed, sources,
+            manualRels: [], disabledRels: new Set(), encodings: new Map(), previewRows: 0,
+        }
+    }
+
+    it('creates the key and writes the missing values as NULL, reporting them', () => {
+        const s = session()
+        const plan = new MysqlExportService().plan(s, relationships.buildGraph(s.files).relationships, options)
+        expect(plan.foreignKeys).toEqual([expect.objectContaining({
+            childTable: 'sotr', childColumn: 'kod_podr', parentTable: 'podr', parentColumn: 'kod', status: 'create',
+            orphans: { values: 2, rows: 3, examples: ['0', '9'] },
+        })])
+        expect(plan.quality).toEqual([expect.objectContaining({
+            table: 'sotr', column: 'kod_podr', effect: 'null', count: 3, examples: ['0', '9'],
+        })])
+    })
+
+    it('puts NULL in the dump where the parent row is missing, the other values unchanged', async () => {
+        const s = session()
+        let sql = ''
+        for await (const chunk of new MysqlExportService().exportSql(s, relationships.buildGraph(s.files).relationships, options)) sql += chunk
+        expect(sql).toContain("('4', NULL)")
+        expect(sql).toContain("('12', NULL)")
+        expect(sql).toContain("('1', '1')")
+        expect(sql).toContain("('2', '2')")
+        expect(sql).toMatch(/ADD CONSTRAINT `fk_sotr_kod_podr` FOREIGN KEY \(`kod_podr`\) REFERENCES `podr` \(`kod`\)/)
+    })
+
+    it('leaves the link out, saying how to keep it, when the option is off', () => {
+        const s = session()
+        const plan = new MysqlExportService().plan(s, relationships.buildGraph(s.files).relationships, { ...options, orphansAsNull: false })
+        expect(plan.foreignKeys).toEqual([expect.objectContaining({ status: 'skip', reason: expect.stringContaining('Значення без відповідника → NULL') })])
+        expect(plan.quality).toHaveLength(0)
     })
 })

@@ -23,6 +23,11 @@ export interface MysqlExportOptions {
     readonly indexes: boolean
     /** Blank DBF values become NULL instead of '' / 0. */
     readonly emptyStringsAsNull: boolean
+    /**
+     * A link whose child holds values missing from the parent (0 for "not set", rows whose parent was
+     * deleted) is still created, those values written as NULL. Off: such a link is left out.
+     */
+    readonly orphansAsNull: boolean
     /** The user's edits to the generated plan, keyed by DBF file name. */
     readonly overrides: MysqlPlanOverrides
 }
@@ -113,6 +118,17 @@ export interface MysqlForeignKeyPlan {
     readonly source: RelationshipKind
     readonly status: 'create' | 'skip'
     readonly reason?: string
+    /** Created although some child values are missing from the parent: they are written as NULL. */
+    readonly orphans?: MysqlOrphans
+}
+
+/** Child values with no parent row, set to NULL so the link can exist. */
+export interface MysqlOrphans {
+    /** Distinct values. */
+    readonly values: number
+    /** Rows holding them. */
+    readonly rows: number
+    readonly examples: readonly string[]
 }
 
 /** 'null': the value is lost (stored as NULL). 'fail': strict-mode MySQL rejects the row, the import stops. */

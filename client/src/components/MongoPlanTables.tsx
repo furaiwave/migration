@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { FieldTypeBadge } from "./FieldTypeBadge";
 import { EditableCell, QualityTable } from "./MysqlPlanTables";
+import { orphansNote } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { identifierError } from "@/lib/mysqlTypes";
 import type {
@@ -285,7 +286,9 @@ function ReferenceTable({ references }: { references: readonly MongoReferencePla
                                 <TableCell>{r.parentCollection}.{r.parentField}</TableCell>
                                 <TableCell className="text-muted-foreground">{SOURCE_LABEL[r.source]}</TableCell>
                                 <TableCell className={cn('whitespace-normal', r.status === 'skip' && 'text-muted-foreground')}>
-                                    {r.status === 'create' ? 'кожне значення знайдено в батьківській колекції' : r.reason}
+                                    {r.status === 'skip' ? r.reason : r.orphans ? (
+                                        <span className="text-amber-700 dark:text-amber-300">{orphansNote(r.orphans, 'null')}</span>
+                                    ) : 'кожне значення знайдено в батьківській колекції'}
                                 </TableCell>
                             </TableRow>
                         ))}

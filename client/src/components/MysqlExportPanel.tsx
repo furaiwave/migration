@@ -27,10 +27,11 @@ const DEFAULT_OPTIONS: MysqlExportOptions = {
     keepDeleted: false,
     indexes: true,
     emptyStringsAsNull: true,
+    orphansAsNull: true,
     overrides: {},
 }
 
-type Toggle = 'includeData' | 'foreignKeys' | 'indexes' | 'keepDeleted' | 'emptyStringsAsNull'
+type Toggle = 'includeData' | 'foreignKeys' | 'indexes' | 'keepDeleted' | 'emptyStringsAsNull' | 'orphansAsNull'
 
 const TOGGLES: ReadonlyArray<{ key: Toggle; label: string; title?: string }> = [
     { key: 'includeData', label: 'Включати дані (INSERT)' },
@@ -38,6 +39,11 @@ const TOGGLES: ReadonlyArray<{ key: Toggle; label: string; title?: string }> = [
     { key: 'indexes', label: 'Створювати індекси з .CDX' },
     { key: 'keepDeleted', label: 'Зберігати видалені записи в <таблиця>_deleted', title: 'Інакше записи, позначені в DBF як видалені (*), пропускаються' },
     { key: 'emptyStringsAsNull', label: "Порожній текст → NULL замість ''" },
+    {
+        key: 'orphansAsNull',
+        label: 'Значення без відповідника → NULL',
+        title: "Посилання на запис, якого немає в батьківській таблиці (0 як «не вказано», видалений запис), записується як NULL — і зв'язок створюється. Інакше такий зв'язок пропускається.",
+    },
 ]
 
 const WRITE_MODES: ReadonlyArray<{ value: MysqlWriteMode; label: string; hint: string }> = [
@@ -66,14 +72,14 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
     const [plan, setPlan] = useState<MysqlExportPlan | null>(null)
 
     // Everything but the database name and "delete gone rows" changes the plan or its data check.
-    const { foreignKeys, emptyStringsAsNull, includeData, overrides, writeMode, keepDeleted, indexes } = options
+    const { foreignKeys, emptyStringsAsNull, orphansAsNull, includeData, overrides, writeMode, keepDeleted, indexes } = options
     useEffect(() => {
         let current = true
-        loadPlan({ sessionId, options: { ...DEFAULT_OPTIONS, foreignKeys, emptyStringsAsNull, includeData, overrides, writeMode, keepDeleted, indexes } })
+        loadPlan({ sessionId, options: { ...DEFAULT_OPTIONS, foreignKeys, emptyStringsAsNull, orphansAsNull, includeData, overrides, writeMode, keepDeleted, indexes } })
             .then((p) => { if (current) setPlan(p) })
             .catch(() => { /* surfaced via planState */ })
         return () => { current = false }
-    }, [sessionId, graph, foreignKeys, emptyStringsAsNull, includeData, overrides, writeMode, keepDeleted, indexes, loadPlan])
+    }, [sessionId, graph, foreignKeys, emptyStringsAsNull, orphansAsNull, includeData, overrides, writeMode, keepDeleted, indexes, loadPlan])
 
     const setOverrides = (update: (o: MysqlPlanOverrides) => MysqlPlanOverrides) =>
         setOptions((o) => ({ ...o, overrides: update(o.overrides) }))

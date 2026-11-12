@@ -6,6 +6,7 @@ import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { FieldTypeBadge } from "./FieldTypeBadge";
+import { orphansNote } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { identifierError, mysqlTypeError, MYSQL_TYPE_SUGGESTIONS } from "@/lib/mysqlTypes";
 import type {
@@ -142,6 +143,9 @@ export function MysqlPlanTables({ plan, dataChecked, ...edits }: MysqlPlanTables
                                     <TableCell className="text-muted-foreground">{FK_SOURCE_LABEL[fk.source]}</TableCell>
                                     <TableCell className={cn('whitespace-normal', fk.status === 'skip' && 'text-muted-foreground')}>
                                         {fk.status === 'create' ? fk.name : fk.reason}
+                                        {fk.orphans && (
+                                            <span className="block text-amber-700 dark:text-amber-300">{orphansNote(fk.orphans)}</span>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))}

@@ -183,7 +183,7 @@ export class MongoExportService {
             references.push({
                 childCollection: fk.childTable, childField: fk.childColumn,
                 parentCollection: fk.parentTable, parentField: parentIsId ? '_id' : fk.parentColumn,
-                source: fk.source, status: 'create',
+                source: fk.source, status: 'create', orphans: fk.orphans,
             })
             addIndex(link.child.table, link.child.column, false, `посилання на ${fk.parentTable}`)
             if (!parentIsId) addIndex(link.parent.table, link.parent.column, true, `на нього посилається ${fk.childTable}.${fk.childColumn}`)
