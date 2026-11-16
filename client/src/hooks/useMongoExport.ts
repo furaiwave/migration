@@ -41,7 +41,7 @@ export interface MongoImportInput extends MysqlExportInput {
 }
 
 async function testConnection(connection: MongoConnectionInput): Promise<MongoConnectionInfo> {
-    return apiRequest('POST /dbf/mongo/test-connection', { body: connection })
+    return apiRequest('POST /dbf/native/test-connection', { body: { engine: 'mongo', ...connection } })
 }
 
 /** Starts the import; it runs on the server and is followed with fetchMongoImportStatus. */

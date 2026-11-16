@@ -47,7 +47,7 @@ export interface MysqlImportInput extends MysqlExportInput {
 }
 
 async function testConnection(connection: MysqlConnectionInput): Promise<MysqlConnectionInfo> {
-    return apiRequest('POST /dbf/mysql/test-connection', { body: connection })
+    return apiRequest('POST /dbf/native/test-connection', { body: { engine: 'mysql', ...connection } })
 }
 
 /** Starts the import; it runs on the server and is followed with fetchImportStatus. */

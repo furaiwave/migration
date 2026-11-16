@@ -228,34 +228,50 @@ export class DbfSessionService implements OnModuleInit {
             throw gone
         }
 
-        const read = (relative: string): Buffer => fs.readFileSync(path.join(sessionDir(id), relative))
-        const sources = new Map<FileName, DbfSource>()
-        const files = new Map<FileName, ReturnType<typeof parseTable>>()
-        for(const f of meta.files){
-            const fileName = toFileName(f.fileName)
-            const source: DbfSource = {
-                dbf: read(f.dbf),
-                memo: f.memo ? { fileName: f.memo.fileName, format: f.memo.format, buffer: read(f.memo.path) } : null,
-                index: f.index ? { fileName: f.index.fileName, buffer: read(f.index.path) } : null,
+        try {
+            if(meta.version !== 1 || meta.id !== id || !Array.isArray(meta.files) ||
+                !Array.isArray(meta.manualRels) || !Array.isArray(meta.disabledRels) ||
+                !meta.encodings || typeof meta.encodings !== 'object' ||
+                !Number.isInteger(meta.previewRows) || meta.previewRows < 0 || meta.previewRows > 500)
+                throw gone
+            const read = (relative: string): Buffer => {
+                // Accept both Windows and Linux session layouts, but never leave this session.
+                const root = path.resolve(sessionDir(id))
+                const file = path.resolve(root, relative.replaceAll('\\', '/'))
+                if(!file.startsWith(root + path.sep)) throw gone
+                return fs.readFileSync(file)
             }
-            sources.set(fileName, source)
-            files.set(fileName, parseTable(fileName, source.dbf, source.memo, source.index, meta.previewRows, meta.encodings[fileName] ?? null))
-        }
+            const sources = new Map<FileName, DbfSource>()
+            const files = new Map<FileName, ReturnType<typeof parseTable>>()
+            for(const f of meta.files){
+                const fileName = toFileName(f.fileName)
+                const source: DbfSource = {
+                    dbf: read(f.dbf),
+                    memo: f.memo ? { fileName: f.memo.fileName, format: f.memo.format, buffer: read(f.memo.path) } : null,
+                    index: f.index ? { fileName: f.index.fileName, buffer: read(f.index.path) } : null,
+                }
+                sources.set(fileName, source)
+                files.set(fileName, parseTable(fileName, source.dbf, source.memo, source.index, meta.previewRows, meta.encodings[fileName] ?? null))
+            }
 
-        const session: DbfSession = {
-            id,
-            createdAt: new Date(meta.createdAt),
-            files,
-            sources,
-            manualRels: meta.manualRels,
-            disabledRels: new Set(meta.disabledRels),
-            encodings: new Map(Object.entries(meta.encodings).map(([k, v]) => [toFileName(k), v])),
-            previewRows: meta.previewRows,
+            const session: DbfSession = {
+                id,
+                createdAt: new Date(meta.createdAt),
+                files,
+                sources,
+                manualRels: meta.manualRels,
+                disabledRels: new Set(meta.disabledRels),
+                encodings: new Map(Object.entries(meta.encodings).map(([k, v]) => [toFileName(k), v])),
+                previewRows: meta.previewRows,
+            }
+            this.store.set(id, session)
+            this.layouts.set(id, meta.files)
+            this.logger.log(`Session restored from disk: ${id} | files: ${files.size}`)
+            return session
+        } catch {
+            this.logger.warn('Could not restore session ' + id + ': incomplete or invalid stored files')
+            throw gone
         }
-        this.store.set(id, session)
-        this.layouts.set(id, meta.files)
-        this.logger.log(`Session restored from disk: ${id} | files: ${files.size}`)
-        return session
     }
 
     /** Keeps the disk copy alive while the session is being used. */

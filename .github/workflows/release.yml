@@ -30,6 +30,11 @@ jobs:
             migration-gateway/package-lock.json
             desktop/package-lock.json
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Test Rust connector
+        run: cargo test --locked --manifest-path native/db-connector/Cargo.toml
+
       - name: Install dependencies
         run: |
           npm ci --prefix client

@@ -1,7 +1,6 @@
-import * as fs from 'fs'
 import * as net from 'net'
-import * as path from 'path'
-import { startServer, type ClientFiles } from './server'
+import { startServer } from './server'
+import { clientFromDir } from './client-files'
 
 /**
  * Entry for the desktop app (see desktop/): the API and the built web client on one local address,
@@ -19,19 +18,6 @@ export interface AppHostOptions {
 export interface AppHost {
   readonly url: string
   close(): Promise<void>
-}
-
-function clientFromDir(dir: string): ClientFiles {
-  const root = path.resolve(dir)
-  return (urlPath) => {
-    const file = path.resolve(root, '.' + decodeURIComponent(urlPath))
-    if (!file.startsWith(root + path.sep)) return undefined
-    try {
-      return fs.readFileSync(file)
-    } catch {
-      return undefined
-    }
-  }
 }
 
 /** The port bound by a probe: the given one, a free one for 0, or null when it is taken. */

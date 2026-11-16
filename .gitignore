@@ -1,0 +1,3 @@
+# Deployment configuration and secrets (examples are safe to commit)
+/.env
+/secrets/

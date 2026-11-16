@@ -24,7 +24,8 @@
       "app/**/*",
       "assets/icon.ico",
       "assets/icon.png",
-      "package.json"
+      "package.json",
+      "!app/native/**/*"
     ],
     "win": {
       "target": [
@@ -45,7 +46,16 @@
     },
     "portable": {
       "artifactName": "dbf-inspector-${version}-portable.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "app/native",
+        "to": "native",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^45.3.0",

@@ -20,6 +20,7 @@ if (!app.requestSingleInstanceLock()) {
     async function start() {
         // Uploaded tables are kept per user (the server reads this when it loads).
         process.env.DBF_SESSION_DIR ??= path.join(app.getPath('userData'), 'sessions')
+        process.env.DBF_CONNECTOR_BIN = path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, 'app'), 'native', process.platform === 'win32' ? 'db-connector.exe' : 'db-connector')
         const { startApp } = require('./app/server.cjs')
         host = await startApp({ clientDir: path.join(__dirname, 'app', 'client'), preferredPort: PREFERRED_PORT })
 

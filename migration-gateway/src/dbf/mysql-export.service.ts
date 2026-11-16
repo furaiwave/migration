@@ -39,7 +39,7 @@ const MAX_INDEXES = 64
 const RECNO_COLUMN = '_dbf_recno'
 const SYNC_KEYS_TABLE = '_dbf_sync_keys'
 
-type PlanTarget = 'mysql' | 'mongo'
+type PlanTarget = 'mysql' | 'mongo' | 'sql'
 
 // MongoDB refuses documents over 16 MB; a single value close to that cannot fit with the rest.
 const DOCUMENT_VALUE_LIMIT = 16 * 1024 * 1024 - 64 * 1024
@@ -489,6 +489,7 @@ const ORPHAN_EXAMPLES = 5
 
 /** A column as a document database sees it: a name and how its values decode. */
 export interface DocumentColumn {
+    readonly nullable: boolean
     readonly field: DbfFieldDescriptor
     readonly name: string
     readonly kind: ValueKind
@@ -659,8 +660,9 @@ export class MysqlExportService {
         session: DbfSession,
         relationships: readonly DbfRelationship[],
         options: MysqlExportOptions,
+        target: 'mongo' | 'sql' = 'mongo',
     ): DocumentSource {
-        const plan = this.buildPlan(session, relationships, options, 'mongo')
+        const plan = this.buildPlan(session, relationships, options, target)
         const tableOf = new Map<TableSpec, DocumentTable>()
         const tables = plan.tables.map((t): DocumentTable => {
             const columns = active(t)
@@ -679,7 +681,7 @@ export class MysqlExportService {
                 tags: t.result.index?.tags ?? [],
                 dbfFieldNames: t.result.header.fields.map(f => f.name),
                 columns: t.columns.map(c => ({
-                    field: c.field, name: c.column, kind: c.kind, key: c.key, excluded: c.excluded, note: c.note,
+                    field: c.field, name: c.column, kind: c.kind, key: c.key, excluded: c.excluded, note: c.note, nullable: c.nullable,
                 })),
                 records: function* (set: RecordSet) {
                     for (const record of iterateRecords(t.source, t.result.header, set)) {
@@ -1331,14 +1333,14 @@ export class MysqlExportService {
                             const loss = lossReason(column, record, table.memo)
                             if (loss) report(table, target, column, loss, 'null', rawDisplay(column, record, table.decoder))
                             if (keyed && !column.nullable)
-                                report(table, target, column, mysql ? 'порожнє значення в первинному ключі (NOT NULL)' : 'порожнє значення в _id', 'fail', null)
+                                report(table, target, column, engine !== 'mongo' ? 'порожнє значення в первинному ключі (NOT NULL)' : 'порожнє значення в _id', 'fail', null)
                             continue
                         }
-                        const misfit = mysql ? typeProblem(value, column.kind, column.mysqlType) : documentProblem(value, column.kind)
+                        const misfit = mysql ? typeProblem(value, column.kind, column.mysqlType) : engine === 'mongo' ? documentProblem(value, column.kind) : null
                         if (misfit) report(table, target, column, misfit, 'fail', isMemoKind(column.kind) || column.kind === 'binary' ? `${value.length / 2} ${plural(value.length / 2, 'байт', 'байти', 'байтів')}` : value)
                         const seen = keyed ? keySeen.get(column) : undefined
                         if (seen) {
-                            if (seen.has(value)) report(table, target, column, !mysql && column.key === 'PRI' ? 'повторюване значення _id'
+                            if (seen.has(value)) report(table, target, column, engine === 'mongo' && column.key === 'PRI' ? 'повторюване значення _id'
                                 : `повторюване значення в ${column.key === 'PRI' ? 'первинному' : 'унікальному'} ключі`, 'fail', value)
                             else seen.add(value)
                         }

@@ -130,7 +130,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => { e.preventDefault(); setDragging(false); readDrop(e.dataTransfer); }}
                 className={cn(
-                    'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors',
+                    'workspace-dropzone flex cursor-pointer flex-col items-center justify-center gap-4 border border-dashed px-5 py-10 text-center transition-colors',
                     dragging ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-border',
                 )}
             >
@@ -248,7 +248,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 <p className="text-sm text-destructive">{errorMessage}</p>
             )}
 
-            <div className="flex items-end justify-between gap-4">
+            <div className="workspace-upload-actions flex flex-wrap items-end justify-between gap-4">
                 <div className="flex flex-col gap-1.5">
                     <Label htmlFor="previewRows" className="text-xs text-muted-foreground">{translate("Рядків у перегляді")}</Label>
                     <Input

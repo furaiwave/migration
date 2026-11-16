@@ -1,0 +1,8 @@
+{$APP_DOMAIN} {
+    # Bound the combined multipart body before forwarding uploads into application memory.
+    request_body {
+        max_size 128MB
+    }
+    encode zstd gzip
+    reverse_proxy app:3000
+}

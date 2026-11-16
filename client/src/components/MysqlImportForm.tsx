@@ -1,3 +1,7 @@
+import { mergeImportStatus } from "@/lib/importStatus";
+import { NativeSchemaInspector } from './NativeSchemaInspector';
+import { isMissingImportJob, lostImportMessage } from '@/lib/importPolling';
+import { useNativeSelection } from '@/lib/nativeTarget';
 import { translate, getLanguage } from '@/i18n';
 import { useEffect, useState } from "react";
 import { CheckCircle2, DatabaseZap, Loader2, PlugZap, Square, XCircle } from "lucide-react";
@@ -47,19 +51,29 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
     const running = job?.state === 'running'
 
     useEffect(() => {
-        if (!job || job.state !== 'running') return
+        if (!job || job.state !== 'running') return;
+        let active = true;
         const timer = setTimeout(() => {
-            fetchImportStatus(job.jobId)
-                .then((next) => { setJob(next); setPollError(null) })
-                // A missed poll is retried by the next render's timer; only show it.
-                .catch((err) => { setPollError(err instanceof Error ? err : new Error(String(err))); setJob({ ...job }) })
-        }, POLL_MS)
-        return () => clearTimeout(timer)
-    }, [job])
+            void fetchImportStatus(job.jobId)
+                .then(next => { if (active) { setJob(current => mergeImportStatus(current, next)); setPollError(null); } })
+                .catch(err => {
+                    if (!active) return;
+                    if (isMissingImportJob(err)) {
+                        setPollError(null);
+                        setJob(current => mergeImportStatus(current, { ...job, state: 'failed', error: lostImportMessage() }));
+                    } else {
+                        setPollError(err instanceof Error ? err : new Error(String(err)));
+                        setJob(current => mergeImportStatus(current, { ...job }));
+                    }
+                });
+        }, POLL_MS);
+        return () => { active = false; clearTimeout(timer); };
+    }, [job]);
 
     const database = options.database ?? ''
-    const canConnect = connection.host.trim() !== '' && connection.user.trim() !== '' && connection.port > 0
+    const canConnect = connection.host.trim() !== '' && connection.user.trim() !== '' && Number.isInteger(connection.port) && connection.port > 0 && connection.port <= 65535
     const busy = test.isPending || runImport.isPending || running
+    useNativeSelection('mysql', (server) => { setConnection(c => ({ ...c, host: server.host, port: server.port, password: '' })); test.reset(); }, busy)
     const databaseExists = test.state.status === 'success' && test.state.data.databases.includes(database)
 
     const update = (patch: Partial<MysqlConnectionInput>) => {
@@ -71,6 +85,7 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
     const onTest = () => { void test.mutate(connection).catch(() => { /* surfaced via test.state */ }) }
     const onImport = () => {
         setJob(null)
+        setPollError(null)
         setCancelling(false)
         void runImport.mutate({ sessionId, options, connection })
             .then(setJob)
@@ -78,7 +93,7 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
     }
     const onCancel = () => {
         setCancelling(true)
-        if (job) void cancelImport(job.jobId).then(setJob).catch((err) => setPollError(err instanceof Error ? err : new Error(String(err))))
+        if (job) void cancelImport(job.jobId).then(next => setJob(current => mergeImportStatus(current, next))).catch((err) => { setPollError(err instanceof Error ? err : new Error(String(err))); setCancelling(false) })
     }
 
     return (
@@ -132,6 +147,7 @@ export function MysqlImportForm({ sessionId, options, databaseValid, blockingIss
                 </Button>
             </div>
 
+            <NativeSchemaInspector connection={{engine:'mysql',...connection,database:options.database}} disabled={!!busy || !databaseValid} />
             {blockingIssues > 0 && (
                 <p className="text-xs text-destructive">
                     {translate("Імпорт заблоковано: через проблеми в даних (")}{blockingIssues}{translate(") MySQL відхилить рядки, і база залишиться завантаженою наполовину. Див. «Якість даних» нижче.")}

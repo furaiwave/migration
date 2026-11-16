@@ -1,0 +1,58 @@
+name: dbf-inspector
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      PUBLIC_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN in .env}
+      APP_USER: ${APP_USER:?Set APP_USER in .env}
+      APP_PASSWORD_FILE: /run/secrets/app_password
+    secrets:
+      - app_password
+    volumes:
+      - sessions:/data/sessions
+    expose:
+      - "3000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    pids_limit: 256
+    stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+secrets:
+  app_password:
+    file: ./secrets/app_password.txt
+volumes:
+  sessions:
+  caddy_data:
+  caddy_config:

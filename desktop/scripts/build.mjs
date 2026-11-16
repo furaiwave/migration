@@ -23,8 +23,16 @@ function run(command, cwd, env = {}) {
     }
 }
 
+if (path.dirname(out) !== desktop || path.basename(out) !== 'app') throw new Error('Unexpected build output path')
 fs.rmSync(out, { recursive: true, force: true })
 fs.mkdirSync(out, { recursive: true })
+
+// Native local discovery and authenticated connection checks.
+const native = path.join(root, 'native', 'db-connector')
+run('cargo build --release --locked', native)
+fs.mkdirSync(path.join(out, 'native'), { recursive: true })
+const nativeName = process.platform === 'win32' ? 'db-connector.exe' : 'db-connector'
+fs.copyFileSync(path.join(native, 'target', 'release', nativeName), path.join(out, 'native', nativeName))
 
 // 1. Client: the page calls the API on its own address ("/"), not on the dev port.
 run('npx tsc -b', client)

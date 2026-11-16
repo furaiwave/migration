@@ -1,18 +1,12 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { DbfService } from './dbf.service';
-
-describe('DbfService', () => {
-  let service: DbfService;
-
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [DbfService],
-    }).compile();
-
-    service = module.get<DbfService>(DbfService);
-  });
-
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
+import { DbfSessionService } from './dbf-session.service';
+import { DbfRelationshipService } from './dbf.relationship.service';
+test('rejects an upload without DBF tables before creating a session', () => {
+  const sessions = { createSession: jest.fn() };
+  const service = new DbfService(
+    sessions as unknown as DbfSessionService,
+    {} as DbfRelationshipService,
+  );
+  expect(() => service.parseMultipleFiles([])).toThrow();
+  expect(sessions.createSession).not.toHaveBeenCalled();
 });

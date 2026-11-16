@@ -1,3 +1,10 @@
+import type { RedisOptions, RedisPlan, RedisImportStatus } from '@/api/api.types';
+import { readApiBody } from '@/lib/responseBody';
+import type { NativeSchema } from '@/api/api.types';
+import type { NativeDiagnostic } from '@/api/api.types';
+import type { NativeServer, DatabaseEngine } from '@/lib/nativeTarget';
+import type { SqlConnectionInput, SqlImportOptions, SqlImportPlan } from '@/api/api.types';
+import { logActivity, observeResult } from '@/lib/activityLog';
 import { LocalizedError } from '@/i18n';
 import type {
     ParseMultipleResult,
@@ -15,13 +22,32 @@ import type {
     MongoImportStatus,
 } from "@/api/api.types";
 
-// VITE_API_BASE=/ : the API is served from the page's own address (the desktop app, see desktop/).
+// VITE_API_BASE=/ serves the API from the same address in desktop and cloud builds.
 const API_BASE = (import.meta.env.VITE_API_BASE?.trim() || 'http://127.0.0.1:3000').replace(/\/+$/, '')
 
-/** The client runs inside the packaged app, which starts the API itself. */
-export const BUNDLED_APP = API_BASE === ''
+/** Cloud help differs from the packaged desktop application. */
+export const CLOUD_APP = import.meta.env.VITE_DEPLOYMENT === 'cloud'
+export const BUNDLED_APP = API_BASE === '' && !CLOUD_APP
 
 export interface ApiRoutes {
+    'POST /dbf/session/:id/redis/plan': { body: RedisOptions; response: RedisPlan }
+    'POST /dbf/session/:id/redis/import': { body: RedisOptions & { uri: string }; response: RedisImportStatus }
+    'GET /dbf/redis/import/:jobId': { body: never; response: RedisImportStatus }
+    'DELETE /dbf/redis/import/:jobId': { body: never; response: RedisImportStatus }
+    'POST /dbf/native/inspect': { body: ApiRoutes['POST /dbf/native/test-connection']['body']; response: NativeSchema }
+
+    'POST /dbf/native/catalog': { body: ApiRoutes['POST /dbf/native/test-connection']['body']; response: ApiRoutes['POST /dbf/native/test-connection']['response'] }
+    'POST /dbf/native/diagnose': { body: {host:string;port:number}; response: NativeDiagnostic }
+
+    'GET /dbf/native/servers': { body: never; response: { servers: NativeServer[]; warnings: string[] } }
+    'POST /dbf/native/test-connection': { body: { engine: DatabaseEngine; host?: string; port?: number; user?: string; password?: string; database?: string; encrypt?: boolean; trustServerCertificate?: boolean; uri?: string }; response: MysqlConnectionInfo & { connector: 'rust'; elapsedMs?: number } }
+
+    'POST /dbf/sql/:dialect/test-connection': { body: SqlConnectionInput; response: MysqlConnectionInfo }
+    'POST /dbf/session/:id/sql/:dialect/plan': { body: SqlImportOptions; response: SqlImportPlan }
+    'POST /dbf/session/:id/sql/:dialect/import': { body: SqlConnectionInput & SqlImportOptions; response: MysqlImportStatus }
+    'GET /dbf/sql/:dialect/import/:jobId': { body: never; response: MysqlImportStatus }
+    'DELETE /dbf/sql/:dialect/import/:jobId': { body: never; response: MysqlImportStatus }
+
     'POST /dbf/parse-multiple': {
         body: FormData
         response: ParseMultipleResult
@@ -152,7 +178,7 @@ interface RequestArgs<R extends ApiRoute> {
     readonly body?: BodyOf<R>
 }
 
-export async function apiRequest<R extends ApiRoute>(
+async function performRequest<R extends ApiRoute>(
     route: R,
     args: RequestArgs<R> = {}
 ): Promise<ResponseOf<R>> {
@@ -180,8 +206,32 @@ export async function apiRequest<R extends ApiRoute>(
         throw new ApiError(res.status, res.statusText, parsed)
     }
     if(res.status === 204) return undefined as ResponseOf<R>
-    // Files (e.g. the .sql dump) come back as a Blob; everything else is JSON.
-    const contentType = res.headers.get('content-type') ?? ''
-    if(!contentType.includes('application/json')) return (await res.blob()) as ResponseOf<R>
-    return (await res.json()) as ResponseOf<R>
+    // Only explicit download routes accept non-JSON. A proxy's HTML page is never API data.
+    return (await readApiBody(res, route.endsWith('/export'))) as ResponseOf<R>
+}
+
+// Record operation boundaries without logging connection bodies, passwords, or URIs.
+export async function apiRequest<R extends ApiRoute>(route: R, args: RequestArgs<R> = {}): Promise<ResponseOf<R>> {
+    const polling = route.startsWith('GET ') && route.includes('/import/');
+    const tracked = !route.startsWith('GET ') || polling;
+    const params = args.params as Record<string, string> | undefined;
+    const source = params?.fileName || params?.id || params?.jobId || 'application';
+    const type = route.includes('/redis/') ? 'REDIS' : route.includes('/native/') ? 'DB' : (route.includes('/mysql/') || route.includes('/sql/')) ? 'SQL' : route.includes('/mongo/') ? 'JS' : 'DBF';
+    if (tracked && !polling) {
+        if (args.body instanceof FormData) {
+            for (const file of args.body.getAll('files')) if (file instanceof File)
+                logActivity(file.name.split('.').pop()?.toUpperCase() || 'FILE', file.name, 'INFO', 'Uploading for parsing');
+        } else logActivity(type, source, 'INFO', route);
+    }
+    try {
+        const result = await performRequest(route, args);
+        if (tracked) {
+            observeResult(route, result, params?.id);
+            if (!polling && !(result && typeof result === 'object' && 'jobId' in result)) logActivity(type, source, 'DONE', route);
+        }
+        return result;
+    } catch (error) {
+        if (tracked) logActivity(type, source, 'ERROR', route + ': ' + (error instanceof ApiError ? 'HTTP ' + error.status : 'Request failed; see operation details'));
+        throw error;
+    }
 }

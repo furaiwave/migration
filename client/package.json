@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:i18n": "node --test scripts/test-i18n.cjs",
-    "test:i18n:browser": "npm run build && node scripts/smoke-i18n.cjs"
+    "test:i18n:browser": "npm run build && node scripts/smoke-i18n.cjs",
+    "test:native": "node --test scripts/test-native-target.cjs",
+    "test:import": "node --test scripts/test-import-status.cjs",
+    "test:api": "node --test scripts/test-api-response.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

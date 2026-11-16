@@ -1,3 +1,7 @@
+import { mergeImportStatus } from "@/lib/importStatus";
+import { NativeSchemaInspector } from './NativeSchemaInspector';
+import { isMissingImportJob, lostImportMessage } from '@/lib/importPolling';
+import { useNativeSelection } from '@/lib/nativeTarget';
 import { translate, getLanguage } from '@/i18n';
 import { useEffect, useState } from "react";
 import { CheckCircle2, DatabaseZap, Loader2, PlugZap, Square, XCircle } from "lucide-react";
@@ -41,19 +45,29 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
     const running = job?.state === 'running'
 
     useEffect(() => {
-        if (!job || job.state !== 'running') return
+        if (!job || job.state !== 'running') return;
+        let active = true;
         const timer = setTimeout(() => {
-            fetchMongoImportStatus(job.jobId)
-                .then((next) => { setJob(next); setPollError(null) })
-                // A missed poll is retried by the next render's timer; only show it.
-                .catch((err) => { setPollError(err instanceof Error ? err : new Error(String(err))); setJob({ ...job }) })
-        }, POLL_MS)
-        return () => clearTimeout(timer)
-    }, [job])
+            void fetchMongoImportStatus(job.jobId)
+                .then(next => { if (active) { setJob(current => mergeImportStatus(current, next)); setPollError(null); } })
+                .catch(err => {
+                    if (!active) return;
+                    if (isMissingImportJob(err)) {
+                        setPollError(null);
+                        setJob(current => mergeImportStatus(current, { ...job, state: 'failed', error: lostImportMessage() }));
+                    } else {
+                        setPollError(err instanceof Error ? err : new Error(String(err)));
+                        setJob(current => mergeImportStatus(current, { ...job }));
+                    }
+                });
+        }, POLL_MS);
+        return () => { active = false; clearTimeout(timer); };
+    }, [job]);
 
     const database = options.database ?? ''
     const uriValid = URI_PATTERN.test(uri.trim())
     const busy = test.isPending || runImport.isPending || running
+    useNativeSelection('mongo', (server) => { setUri('mongodb://' + (server.host.includes(':') ? '[' + server.host + ']' : server.host) + ':' + server.port); test.reset(); }, busy)
     const databaseExists = test.state.status === 'success' && test.state.data.databases.includes(database)
     // A user limited to one database cannot list them; then nothing is known either way.
     const databasesListed = test.state.status === 'success' && test.state.data.databases.length > 0
@@ -61,6 +75,7 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
     const onTest = () => { void test.mutate({ uri: uri.trim() }).catch(() => { /* surfaced via test.state */ }) }
     const onImport = () => {
         setJob(null)
+        setPollError(null)
         setCancelling(false)
         void runImport.mutate({ sessionId, options, connection: { uri: uri.trim() } })
             .then(setJob)
@@ -68,7 +83,7 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
     }
     const onCancel = () => {
         setCancelling(true)
-        if (job) void cancelMongoImport(job.jobId).then(setJob).catch((err) => setPollError(err instanceof Error ? err : new Error(String(err))))
+        if (job) void cancelMongoImport(job.jobId).then(next => setJob(current => mergeImportStatus(current, next))).catch((err) => { setPollError(err instanceof Error ? err : new Error(String(err))); setCancelling(false) })
     }
 
     return (
@@ -108,6 +123,7 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
             </p>
 
             {!uriValid && <p className="text-xs text-destructive">{translate("Рядок підключення має починатися з mongodb:// або mongodb+srv://")}</p>}
+            <NativeSchemaInspector connection={{engine:'mongo',uri:uri.trim(),database:options.database}} disabled={!!busy || !databaseValid} />
             {blockingIssues > 0 && (
                 <p className="text-xs text-destructive">
                     {translate("Імпорт заблоковано: через проблеми в даних (")}{blockingIssues}{translate(") MongoDB відхилить документи. Див. «Якість даних» нижче.")}

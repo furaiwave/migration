@@ -1,3 +1,9 @@
+import { RedisImportController } from './redis-import.controller';
+import { RedisImportService } from './redis-import.service';
+import { NativeConnectorController } from './native-connector.controller';
+import { NativeConnectorService } from './native-connector.service';
+import { SqlImportController } from './sql-import.controller';
+import { SqlImportService } from './sql-import.service';
 import { Module } from '@nestjs/common';
 import { DbfController } from './dbf.controller';
 import { DbfService } from './dbf.service';
@@ -9,8 +15,11 @@ import { MongoExportService } from './mongo-export.service';
 import { MongoImportService } from './mongo-import.service';
 
 @Module({
-    controllers: [DbfController],
+    controllers: [RedisImportController, DbfController, SqlImportController, NativeConnectorController],
     providers: [
+        RedisImportService,
+        NativeConnectorService,
+        SqlImportService,
         DbfService,
         DbfSessionService,
         DbfRelationshipService,

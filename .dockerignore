@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/target
+**/coverage
+**/.cache
+**/.env
+**/.env.*
+.git
+.claude
+desktop
+secrets
+*.log

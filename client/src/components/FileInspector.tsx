@@ -28,7 +28,7 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
   return (
     <div className="flex flex-col gap-4">
       <EncodingPicker sessionId={sessionId} file={file} onFileChange={onFileChange} />
-      <HeaderInspector header={file.header} encoding={file.encoding} memoFile={file.memoFile} liveRecords={file.totalRecords} />
+      <details className="workspace-file-metadata"><summary>{translate("Технічні дані файлу")}{file.header.recordCount>file.totalRecords && <span className="text-amber-600">{translate("Видалених: {0}",[file.header.recordCount-file.totalRecords])}</span>}</summary><div><HeaderInspector header={file.header} encoding={file.encoding} memoFile={file.memoFile} liveRecords={file.totalRecords} /></div></details>
       {file.index && <IndexTags index={file.index} />}
 
       <section className="flex flex-col gap-2">
@@ -149,7 +149,7 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
           ? translate("{0}, тому кодування визначено за текстом — перевірте вкладку «Дані»; якщо літери неправильні, виберіть інше кодування.", [file.header.codePage === 0
               ? translate("У файлі немає позначки кодової сторінки")
               : translate("Позначка кодової сторінки (0x{0}) невідома або не відповідає тексту", [file.header.codePage.toString(16).toUpperCase()])])
-          : translate("Це кодування використовується для назв полів, перегляду та експорту в MySQL.")}
+          : translate("Це кодування використовується для назв полів, перегляду та перенесення даних.")}
       </span>
       {error && <span className="text-destructive">{errorMessage(error)}</span>}
     </div>

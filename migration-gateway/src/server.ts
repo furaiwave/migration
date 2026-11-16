@@ -1,3 +1,4 @@
+import { webAccess, type WebAccess } from './web-access';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, type LogLevel } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
@@ -13,6 +14,7 @@ export interface ServerOptions {
   readonly origins: readonly string[]
   /** When set, the client is served from the same address as the API. */
   readonly client?: ClientFiles
+  readonly access?: WebAccess
   readonly logger?: LogLevel[]
 }
 
@@ -47,6 +49,8 @@ function serveClient(files: ClientFiles) {
 
 export async function startServer(options: ServerOptions) {
   const app = await NestFactory.create(AppModule, options.logger ? { logger: options.logger } : {});
+  app.enableShutdownHooks();
+  if (options.access) app.use(webAccess(options.access));
   const origins = options.origins
 
   app.useGlobalPipes(
@@ -57,7 +61,7 @@ export async function startServer(options: ServerOptions) {
     })
   )
 
-  // The API takes database passwords and connects wherever it is told, so only the known pages may call it.
+  // Origin checks prevent cross-site browser actions; web mode also requires authentication.
   // CORS only hides responses; a plain form POST from another site would still run. Refuse it outright.
   // Requests without an Origin header (curl, scripts on this machine) are not from a web page and pass.
   app.use((req: Request, res: Response, next: NextFunction) => {

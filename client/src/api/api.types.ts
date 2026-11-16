@@ -486,3 +486,50 @@ export interface MongoImportStatus {
     readonly result?: MongoImportResult
     readonly error?: string
 }
+
+export type SqlDialect = 'postgres' | 'mssql';
+export interface SqlConnectionInput {
+    host: string; port: number; user: string; password: string; database: string;
+    encrypt: boolean; trustServerCertificate: boolean;
+}
+export interface SqlImportOptions {
+    writeMode: 'replace' | 'append'; includeData: boolean; foreignKeys: boolean;
+    keepDeleted: boolean; indexes: boolean; emptyStringsAsNull: boolean; orphansAsNull: boolean;
+}
+export interface SqlImportPlan {
+    dialect: SqlDialect;
+    tables: { fileName: string; table: string; rowCount: number; columns: { name: string; type: string; key: string | null }[] }[];
+    warnings: string[]; quality: readonly MysqlQualityIssue[];
+}
+
+export interface NativeDiagnostic {
+  host: string; port: number;
+  status: 'reachable' | 'refused' | 'timeout' | 'unreachable' | 'dnsError' | 'dnsTimeout';
+  elapsedMs: number; resolvedAddresses: string[];
+}
+
+export interface NativeSchema {
+  engine: 'mysql'|'mongo'|'postgres'|'mssql'; database:string; elapsedMs:number; truncated:boolean;
+  objects:{schema:string;name:string;kind:'table'|'view'|'collection';columns:{name:string;dataType:string;nullable:boolean;ordinal:number}[]}[];
+}
+
+export interface RedisOptions {
+  prefix: string;
+  writeMode: 'new' | 'update';
+  keepDeleted: boolean;
+  ttlSeconds: number;
+}
+export interface RedisPlan {
+  prefix: string;
+  tables: { fileName: string; table: string; deletedTable: string | null; rowCount: number; deletedRows: number; keyMode: 'primary' | 'record'; columns: { name: string; kind: string }[] }[];
+  warnings: string[];
+  quality: readonly MysqlQualityIssue[];
+}
+export interface RedisImportStatus {
+  jobId: string;
+  database: string;
+  state: 'running' | 'done' | 'failed' | 'cancelled';
+  progress: { phase: string; table: string | null; tableIndex: number; tableCount: number; tableRowsDone: number; rowsDone: number; rowsTotal: number; elapsedMs: number };
+  result?: { tables: { fileName: string; table: string; expectedRows: number; importedRows: number; skippedRows: number }[]; warnings: string[]; durationMs: number };
+  error?: string;
+}

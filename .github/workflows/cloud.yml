@@ -1,0 +1,72 @@
+name: Cloud checks
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            migration-gateway/package-lock.json
+            client/package-lock.json
+      - name: Test API and client
+        run: |
+          npm ci --prefix migration-gateway
+          npm ci --prefix client
+          npm test --prefix migration-gateway -- --runInBand
+          npm run lint --prefix client
+          npm run test:i18n --prefix client
+          npm run test:native --prefix client
+          npm run test:import --prefix client
+          npm run test:api --prefix client
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Linux image (includes Rust tests)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: dbf-inspector:check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Validate deployment configuration
+        env:
+          APP_DOMAIN: migration.example.test
+          APP_USER: tester
+        run: |
+          mkdir -p secrets
+          printf '%s' 'ci-only-password-not-for-deployment' > secrets/app_password.txt
+          docker compose config --quiet
+          docker compose run --rm --no-deps proxy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Test web image as non-root with a read-only filesystem
+        run: |
+          docker run --rm --read-only --tmpfs /tmp:size=128m,mode=1777 --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            -e WEB_TEST_ROOT=/app -e WEB_TEST_CLIENT=/app/client \
+            -v "$PWD/migration-gateway/scripts/smoke-web.cjs:/checks/smoke-web.cjs:ro" \
+            dbf-inspector:check node /checks/smoke-web.cjs
+
+      - name: Test Redis import against a real server
+        run: |
+          docker run --rm --network host --read-only --tmpfs /tmp:size=64m,mode=1777 \
+            -e REDIS_TEST_ROOT=/app -e REDIS_TEST_URL=redis://127.0.0.1:6379/15 \
+            -v "$PWD/migration-gateway/scripts/smoke-redis.cjs:/checks/smoke-redis.cjs:ro" \
+            dbf-inspector:check node /checks/smoke-redis.cjs

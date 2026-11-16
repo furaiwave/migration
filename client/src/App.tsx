@@ -1,25 +1,27 @@
-import { translate, useLanguage } from '@/i18n';
-import { LanguagePicker } from '@/components/LanguagePicker';
-import { ThemeToggle } from '@/components/ThemeToggle';
-import { useEffect, useState } from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { FileDropzone } from '@/components/FileDropzone';
-import { FileTabs } from '@/components/FileTabs';
-import { RelationshipsPanel } from '@/components/RelashionshipsPanel';
-import { useParseFiles } from '@/hooks/useParseFiles';
-import { useAddRelationship } from '@/hooks/useAddRelationship';
+import { WorkspaceOverview } from "@/components/WorkspaceOverview";
+import { DatabaseDiscovery } from "@/components/DatabaseDiscovery";
+import { ActivityConsole } from "@/components/ActivityConsole";
+import { translate, useLanguage } from "@/i18n";
+import { LanguagePicker } from "@/components/LanguagePicker";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useEffect, useState } from "react";
+import { Loader2, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileDropzone } from "@/components/FileDropzone";
+import { FileTabs } from "@/components/FileTabs";
+import { RelationshipsPanel } from "@/components/RelashionshipsPanel";
+import { useParseFiles } from "@/hooks/useParseFiles";
+import { useAddRelationship } from "@/hooks/useAddRelationship";
 import type {
   ParseMultipleResult,
   DbfFilePreview,
   DbfRelationshipGraph,
   AddManualRelationshipInput,
-} from '@/api/api.types';
-import { ExportPanel } from '@/components/ExportPanel';
-import { errorMessage } from '@/lib/errors';
-import { apiRequest, ApiError, BUNDLED_APP } from '@/client/client';
-import { lastSession, rememberSession } from '@/lib/lastSession';
+} from "@/api/api.types";
+import { ExportPanel } from "@/components/ExportPanel";
+import { errorMessage } from "@/lib/errors";
+import { apiRequest, ApiError, BUNDLED_APP, CLOUD_APP } from "@/client/client";
+import { lastSession, rememberSession } from "@/lib/lastSession";
 
 export default function App() {
   useLanguage();
@@ -38,7 +40,7 @@ export default function App() {
   useEffect(() => {
     const id = lastSession();
     if (!id) return;
-    apiRequest('GET /dbf/session/:id', { params: { id } })
+    apiRequest("GET /dbf/session/:id", { params: { id } })
       .then((result) => {
         setSession(result);
         setGraph(result.graph);
@@ -57,27 +59,48 @@ export default function App() {
   }, [restoreAttempt]);
 
   const handleParse = (files: File[], previewRows: number) => {
-    void parse.mutate({ files, previewRows }).then((result) => {
-      setSession(result);
-      setGraph(result.graph);
-      rememberSession(result.sessionId);
-    }).catch(() => { /* surfaced via parse.state */ });
+    void parse
+      .mutate({ files, previewRows })
+      .then((result) => {
+        setSession(result);
+        setGraph(result.graph);
+        rememberSession(result.sessionId);
+      })
+      .catch(() => {
+        /* surfaced via parse.state */
+      });
   };
 
   const handleAdd = (input: AddManualRelationshipInput) => {
-    void addRel.mutate(input).then(setGraph).catch(() => { /* surfaced via addRel.state */ });
+    void addRel
+      .mutate(input)
+      .then(setGraph)
+      .catch(() => {
+        /* surfaced via addRel.state */
+      });
   };
 
   // A table re-read with another encoding: swap it in, the graph may have changed with its field names.
-  const handleFileChange = (file: DbfFilePreview, nextGraph: DbfRelationshipGraph) => {
-    setSession((s) => s && { ...s, files: s.files.map((f) => (f.fileName === file.fileName ? file : f)) });
+  const handleFileChange = (
+    file: DbfFilePreview,
+    nextGraph: DbfRelationshipGraph,
+  ) => {
+    setSession(
+      (s) =>
+        s && {
+          ...s,
+          files: s.files.map((f) => (f.fileName === file.fileName ? file : f)),
+        },
+    );
     setGraph(nextGraph);
   };
 
   const reset = () => {
     // Free the uploaded files on the server; a failure only means the session already expired.
     if (session) {
-      void apiRequest('DELETE /dbf/session/:id', { params: { id: session.sessionId } }).catch(() => {});
+      void apiRequest("DELETE /dbf/session/:id", {
+        params: { id: session.sessionId },
+      }).catch(() => {});
     }
     rememberSession(null);
     parse.reset();
@@ -87,14 +110,20 @@ export default function App() {
   };
 
   return (
-    <div className="flex min-h-svh w-full flex-col bg-background text-foreground">
-      <header className="border-b">
-        <div className="flex w-full flex-wrap items-center justify-between gap-4 px-6 py-4">
+    <div className="workspace-shell flex min-h-svh w-full flex-col bg-background text-foreground">
+      <header className="workspace-topbar">
+        <div className="workspace-topbar-inner">
           <div className="flex items-center gap-2.5">
-            <img src="/favicon.svg" alt="" className="size-6" />
+            <span className="workspace-brand-mark">
+              <img src="/favicon.svg" alt="" className="size-5" />
+            </span>
             <div>
-              <h1 className="text-sm font-semibold tracking-tight">dbf inspector</h1>
-              <p className="text-xs text-muted-foreground">{translate("Перегляд старих таблиць .dbf перед перенесенням у MySQL або MongoDB")}</p>
+              <h1 className="font-mono text-sm font-semibold tracking-tight">
+                dbf inspector
+              </h1>
+              <p className="text-xs text-muted-foreground">
+                {translate("Перегляд та перенесення таблиць DBF")}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -109,58 +138,177 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex w-full flex-1 flex-col gap-6 px-6 py-6">
-        {restoring && !session ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> {translate("Відкриваю останню сесію…")}
-          </p>
-        ) : restoreError && !session ? (
-          <div className="flex flex-col items-start gap-3 border border-destructive/40 p-4 text-sm">
-            <p className="text-destructive">
-              {translate("Не вдалося відкрити останню сесію:")} {errorMessage(restoreError)}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {BUNDLED_APP ? (
-                <>{translate("Сесія зберігається на сервері добу. Перезапустіть програму dbf inspector і спробуйте ще раз.")}</>
-              ) : (
-                <>{translate("Сесія зберігається на сервері добу. Запустіть бекенд (")}<code className="bg-muted px-1">npm run start:dev</code>  {translate("у migration-gateway) і спробуйте ще раз.")}</>
-              )}
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => { setRestoring(true); setRestoreAttempt((n) => n + 1); }}>
-                <RotateCcw /> {translate("Спробувати ще раз")}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => { rememberSession(null); setRestoreError(null); }}>
-                {translate("Почати нову сесію")}
-              </Button>
-            </div>
-          </div>
-        ) : !session ? (
-          <FileDropzone
-            isPending={parse.isPending}
-            errorMessage={parse.state.status === 'error' ? errorMessage(parse.state.error) : undefined}
-            onSubmit={handleParse}
-          />
-        ) : (
-          <>
-            {graph && (
-              <RelationshipsPanel
-                sessionId={session.sessionId}
-                files={session.files}
-                graph={graph}
-                isAdding={addRel.isPending}
-                addError={addRel.state.status === 'error' ? errorMessage(addRel.state.error) : undefined}
-                onAdd={handleAdd}
-                onGraphChange={setGraph}
-              />
+      <main className="workspace-main">
+        <WorkspaceOverview
+          session={session}
+          graph={graph}
+          working={restoring || parse.isPending}
+        />
+        <div className="workspace-grid">
+          <aside id="destination" className="workspace-sidebar">
+            <DatabaseDiscovery />
+          </aside>
+          <div className="workspace-content">
+            {restoring && !session ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />{" "}
+                {translate("Відкриваю останню сесію…")}
+              </p>
+            ) : restoreError && !session ? (
+              <div className="flex flex-col items-start gap-3 border border-destructive/40 p-4 text-sm">
+                <p className="text-destructive">
+                  {translate("Не вдалося відкрити останню сесію:")}{" "}
+                  {errorMessage(restoreError)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {CLOUD_APP ? (
+                    <>{translate("Сесія зберігається на сервері добу. Перевірте з’єднання та повторіть спробу або завантажте файли знову.")}</>
+                  ) : BUNDLED_APP ? (
+                    <>
+                      {translate(
+                        "Сесія зберігається на сервері добу. Перезапустіть програму dbf inspector і спробуйте ще раз.",
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {translate(
+                        "Сесія зберігається на сервері добу. Запустіть бекенд (",
+                      )}
+                      <code className="bg-muted px-1">npm run start:dev</code>{" "}
+                      {translate("у migration-gateway) і спробуйте ще раз.")}
+                    </>
+                  )}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setRestoring(true);
+                      setRestoreAttempt((n) => n + 1);
+                    }}
+                  >
+                    <RotateCcw /> {translate("Спробувати ще раз")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      rememberSession(null);
+                      setRestoreError(null);
+                    }}
+                  >
+                    {translate("Почати нову сесію")}
+                  </Button>
+                </div>
+              </div>
+            ) : !session ? (
+              <section id="source" className="workspace-card">
+                <div className="workspace-section-heading">
+                  <span className="workspace-step-index">02</span>
+                  <div>
+                    <h2>{translate("Джерело даних")}</h2>
+                    <p>
+                      {translate(
+                        "Додайте .dbf разом із memo-файлами та індексами.",
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="workspace-card-body">
+                  <FileDropzone
+                    isPending={parse.isPending}
+                    errorMessage={
+                      parse.state.status === "error"
+                        ? errorMessage(parse.state.error)
+                        : undefined
+                    }
+                    onSubmit={handleParse}
+                  />
+                </div>
+              </section>
+            ) : (
+              <>
+                <section id="source" className="workspace-card">
+                  <div className="workspace-section-heading">
+                    <span className="workspace-step-index">02</span>
+                    <div>
+                      <h2>{translate("Джерело даних")}</h2>
+                      <p>
+                        {translate(
+                          "Перевірте кодування, колонки та приклади записів.",
+                        )}
+                      </p>
+                    </div>
+                    <span className="workspace-section-tag">
+                      {session.files.length} DBF
+                    </span>
+                  </div>
+                  <div className="workspace-card-body">
+                    <FileTabs
+                      sessionId={session.sessionId}
+                      files={session.files}
+                      onFileChange={handleFileChange}
+                    />
+                  </div>
+                </section>
+                {graph && (
+                  <section id="review" className="workspace-card">
+                    <div className="workspace-section-heading">
+                      <span className="workspace-step-index">03</span>
+                      <div>
+                        <h2>{translate("Перевірка")}</h2>
+                        <p>
+                          {translate(
+                            "Уточніть зв’язки між таблицями перед перенесенням.",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="workspace-card-body">
+                      <RelationshipsPanel
+                        sessionId={session.sessionId}
+                        files={session.files}
+                        graph={graph}
+                        isAdding={addRel.isPending}
+                        addError={
+                          addRel.state.status === "error"
+                            ? errorMessage(addRel.state.error)
+                            : undefined
+                        }
+                        onAdd={handleAdd}
+                        onGraphChange={setGraph}
+                      />
+                    </div>
+                  </section>
+                )}
+                {graph && (
+                  <section id="transfer" className="workspace-card">
+                    <div className="workspace-section-heading">
+                      <span className="workspace-step-index">04</span>
+                      <div>
+                        <h2>{translate("Перенесення")}</h2>
+                        <p>
+                          {translate(
+                            "Оберіть СУБД, перевірте план і запустіть імпорт.",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="workspace-card-body">
+                      <ExportPanel
+                        key={session.sessionId}
+                        sessionId={session.sessionId}
+                        graph={graph}
+                      />
+                    </div>
+                  </section>
+                )}
+              </>
             )}
-            <Separator />
-            {graph && <ExportPanel sessionId={session.sessionId} graph={graph} />}
-            <Separator />
-            <FileTabs sessionId={session.sessionId} files={session.files} onFileChange={handleFileChange} />
-          </>
-        )}
+          </div>
+        </div>
       </main>
+      <ActivityConsole />
     </div>
   );
 }
