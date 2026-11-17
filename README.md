@@ -1,6 +1,6 @@
 <img src="desktop/assets/icon.png" width="72" alt="">
 
-# dbf inspector
+# db inspector
 
 Перегляд старих таблиць `.dbf` (dBASE, FoxPro, Visual FoxPro) і перенесення їх у MySQL, MongoDB, PostgreSQL, Microsoft SQL Server або Redis.
 
