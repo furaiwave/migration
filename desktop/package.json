@@ -1,7 +1,7 @@
 {
   "name": "data-migrator",
   "productName": "Data Migrator",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Inspect legacy table files and migrate data between MySQL, MongoDB, PostgreSQL, Microsoft SQL Server and Redis",
   "author": "furaiwave",
   "private": true,

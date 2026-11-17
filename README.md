@@ -2,6 +2,8 @@
 
 # Data Migrator
 
+**Version 0.1.2**
+
 Inspect legacy table files (dBASE, FoxPro, Visual FoxPro) and migrate them to MySQL, MongoDB, PostgreSQL, Microsoft SQL Server or Redis.
 
 ## Download
@@ -33,7 +35,7 @@ The Rust connector runs as a gateway child process for each request, so it does 
 | `migration-gateway` | NestJS API — `npm run start:dev` |
 | `desktop` | Electron application — `npm run build`, `npm start`; installer — `npm run dist` |
 
-To publish a new downloadable version, run `git tag v0.2.0 && git push origin v0.2.0`. GitHub Actions builds the installer and publishes the release.
+To publish a new downloadable version, run `git tag v0.1.2 && git push origin v0.1.2`. GitHub Actions builds the installer and publishes the release.
 
 ## Interface language
 

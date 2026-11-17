@@ -1,5 +1,5 @@
 # Builds the Windows app and publishes it as a GitHub release.
-#   git tag v0.1.0 && git push origin v0.1.0
+#   git tag v0.1.2 && git push origin v0.1.2
 # The tag's number becomes the app version. Run by hand (Actions -> Release -> Run workflow) it only
 # builds, and the files are attached to the run as an artifact instead of a release.
 name: Release
