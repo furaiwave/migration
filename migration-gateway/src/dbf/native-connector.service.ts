@@ -1,5 +1,9 @@
 import type { Readable, Writable } from 'stream';
 import {
+  queryResult,
+  type NativeQueryResult,
+} from '../types/native-query.types';
+import {
   BadRequestException,
   Injectable,
   ServiceUnavailableException,
@@ -72,6 +76,12 @@ export interface NativeSchema {
   }[];
 }
 type NativeRequest =
+  | {
+      command: 'query';
+      connection: NativeConnection;
+      sql: string;
+      maxRows: number;
+    }
   | { command: 'discover' }
   | { command: 'test' | 'catalog' | 'inspect'; connection: NativeConnection }
   | { command: 'diagnose'; endpoint: NativeEndpoint };
@@ -218,7 +228,24 @@ export class NativeConnectorService {
   inspect(connection: NativeConnection): Promise<NativeSchema> {
     return this.run({ command: 'inspect', connection });
   }
-  private async run<T>(request: NativeRequest): Promise<T> {
+  query(
+    connection: NativeConnection,
+    sql: string,
+    maxRows: number,
+    signal?: AbortSignal,
+  ): Promise<NativeQueryResult> {
+    if (!['mysql', 'postgres', 'mssql'].includes(connection.engine))
+      throw new BadRequestException(
+        'The SQL editor supports PostgreSQL, MySQL and SQL Server',
+      );
+    return this.run({ command: 'query', connection, sql, maxRows }, signal);
+  }
+  private async run<T>(
+    request: NativeRequest,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (signal?.aborted)
+      throw new BadRequestException('SQL execution was stopped');
     if (!this.binary || !existsSync(this.binary))
       throw new ServiceUnavailableException(
         'Rust connector is not built. Run cargo build --release --locked in native/db-connector, then rebuild desktop.',
@@ -226,7 +253,10 @@ export class NativeConnectorService {
     if (this.active >= 4)
       throw new ServiceUnavailableException('Connector is busy; retry shortly');
     const input = JSON.stringify(request);
-    if (Buffer.byteLength(input, 'utf8') > 65536)
+    if (
+      Buffer.byteLength(input, 'utf8') >
+      (request.command === 'query' ? 262144 : 65536)
+    )
       throw new BadRequestException('Connector request is too large');
     this.active++;
     let child: ChildProcessByStdio<Writable, Readable, null>;
@@ -242,20 +272,34 @@ export class NativeConnectorService {
     }
     // Never read or report stderr: native driver errors can contain connection data.
     return new Promise<T>((resolve, reject) => {
-      let output = '';
+      const chunks: string[] = [];
+      let outputBytes = 0;
       let ended = false;
       const finish = (error?: Error, value?: T) => {
         if (ended) return;
         ended = true;
         clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
         this.active--;
         if (error) reject(error);
         else resolve(value!);
       };
-      const timer = setTimeout(() => {
+      const abort = () => {
         child.kill();
-        finish(new ServiceUnavailableException('Rust connector timed out'));
-      }, 20000);
+        finish(new BadRequestException('SQL execution was stopped'));
+      };
+      const timer = setTimeout(
+        () => {
+          child.kill();
+          finish(new ServiceUnavailableException('Rust connector timed out'));
+        },
+        request.command === 'query' ? 35000 : 20000,
+      );
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
       child.on('error', () =>
         finish(
           new ServiceUnavailableException('Rust connector could not start'),
@@ -267,8 +311,10 @@ export class NativeConnectorService {
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => {
         if (ended) return;
-        output += chunk;
-        if (Buffer.byteLength(output) > 1024 * 1024) {
+        outputBytes += Buffer.byteLength(chunk);
+        if (outputBytes <= (request.command === 'query' ? 4 : 1) * 1024 * 1024)
+          chunks.push(chunk);
+        else {
           child.kill();
           finish(
             new ServiceUnavailableException('Invalid Rust connector response'),
@@ -284,16 +330,18 @@ export class NativeConnectorService {
             ),
           );
         try {
-          const parsed: unknown = JSON.parse(output);
+          const parsed: unknown = JSON.parse(chunks.join(''));
           if (!record(parsed)) throw new Error('Invalid connector envelope');
           const valid =
-            request.command === 'discover'
-              ? discoveryResult(parsed.result)
-              : request.command === 'diagnose'
-                ? diagnosticResult(parsed.result)
-                : request.command === 'inspect'
-                  ? schemaResult(parsed.result)
-                  : connectionResult(parsed.result);
+            request.command === 'query'
+              ? queryResult(parsed.result)
+              : request.command === 'discover'
+                ? discoveryResult(parsed.result)
+                : request.command === 'diagnose'
+                  ? diagnosticResult(parsed.result)
+                  : request.command === 'inspect'
+                    ? schemaResult(parsed.result)
+                    : connectionResult(parsed.result);
           if (parsed.ok === true && valid)
             finish(undefined, parsed.result as T);
           else if (parsed.ok === true)

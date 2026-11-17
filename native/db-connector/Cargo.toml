@@ -6,13 +6,15 @@ edition = "2021"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+futures-util = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "io-util"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 tokio-postgres = "0.7"
 postgres-native-tls = "0.5"
 native-tls = "0.2"
 mysql_async = { version = "0.36", default-features = false, features = ["minimal-rust", "native-tls-tls"] }
-tiberius = { version = "0.12.3", default-features = false, features = ["tds73", "native-tls"] }
+tiberius = { version = "0.12.3", default-features = false, features = ["tds73", "native-tls", "chrono"] }
 mongodb = "=3.3.0"
 sysinfo = "0.33"
 redis = { version = "0.32", default-features = false, features = ["tokio-native-tls-comp"] }

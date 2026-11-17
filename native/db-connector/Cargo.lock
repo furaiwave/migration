@@ -464,6 +464,8 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 name = "db-connector"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "futures-util",
  "mongodb",
  "mysql_async",
  "native-tls",
@@ -2497,6 +2499,7 @@ dependencies = [
  "asynchronous-codec",
  "byteorder",
  "bytes",
+ "chrono",
  "connection-string",
  "encoding_rs",
  "enumflags2",

@@ -8,6 +8,7 @@ export function operationLabel(route: string): string {
   if (path.endsWith("/test-connection")) return "Test connection";
   if (path.endsWith("/diagnose")) return "Run network diagnostics";
   if (path.endsWith("/catalog")) return "Load database catalog";
+  if (path.endsWith("/query")) return "Run SQL";
   if (path.endsWith("/inspect")) return "Inspect database structure";
   if (path.endsWith("/servers")) return "Find database servers";
   if (path.includes("/encoding")) return "Change source encoding";

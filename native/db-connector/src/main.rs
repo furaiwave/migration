@@ -1,6 +1,7 @@
 mod connection;
 mod diagnostics;
 mod discovery;
+mod query;
 mod schema;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
@@ -39,14 +40,29 @@ impl Engine {
 #[serde(tag = "command", rename_all = "camelCase", deny_unknown_fields)]
 enum Request {
     Discover,
-    Test { connection: connection::Connection },
-    Catalog { connection: connection::Connection },
-    Diagnose { endpoint: diagnostics::Endpoint },
-    Inspect { connection: connection::Connection },
+    Test {
+        connection: connection::Connection,
+    },
+    Catalog {
+        connection: connection::Connection,
+    },
+    Diagnose {
+        endpoint: diagnostics::Endpoint,
+    },
+    Inspect {
+        connection: connection::Connection,
+    },
+    Query {
+        connection: connection::Connection,
+        sql: String,
+        #[serde(rename = "maxRows")]
+        max_rows: usize,
+    },
 }
 
 fn main() {
     let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
         .enable_all()
         .build()
     else {
@@ -63,8 +79,8 @@ fn main() {
 async fn handle_request() {
     // One request per process: secrets travel only through stdin, never command arguments or files.
     let mut input = String::new();
-    let result = if io::stdin().take(65537).read_to_string(&mut input).is_err()
-        || input.len() > 65536
+    let result = if io::stdin().take(262145).read_to_string(&mut input).is_err()
+        || input.len() > 262144
     {
         serde_json::json!({ "ok": false, "error": "Invalid connector request" })
     } else {
@@ -110,6 +126,14 @@ async fn handle_request() {
                     }
                 }
             }
+            Ok(Request::Query {
+                connection,
+                sql,
+                max_rows,
+            }) => match query::execute(connection, sql, max_rows).await {
+                Ok(result) => serde_json::json!({"ok":true,"result":result}),
+                Err(message) => serde_json::json!({"ok":false,"error":message}),
+            },
             Ok(Request::Diagnose { endpoint }) => match diagnostics::diagnose(endpoint).await {
                 Ok(result) => serde_json::json!({"ok":true,"result":result}),
                 Err(message) => serde_json::json!({"ok":false,"error":message}),

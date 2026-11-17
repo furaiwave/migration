@@ -43,7 +43,7 @@ Source strings and translation keys are English. Other languages live in the tra
 
 Translation catalog: `client/src/i18n/messages.json`. Check it with `cd client` followed by `npm run test:i18n`.
 
-Use the button next to the language selector to switch between light and dark themes. Your choice persists between launches; before a manual selection, the theme follows the system preference.
+Use the button next to the language selector to switch between light and dark themes. The desktop interface uses centered work areas, soft charcoal surfaces in dark mode, fine line icons, and green/red outlined actions. Your choice persists between launches; before a manual selection, the theme follows the system preference.
 
 ## PostgreSQL and Microsoft SQL Server
 
@@ -80,3 +80,11 @@ source imports use hashes and support key prefixes, new-record or field-update m
 ## Between databases
 
 Table files remain the default source. **Between databases** supports MySQL/MariaDB, MongoDB, PostgreSQL, MSSQL and Redis as both sources and destinations, with object selection, plan review, progress and cancellation. Data representations and limitations are documented in [MIGRATIONS.md](MIGRATIONS.md).
+
+### SQL dump inspection
+
+Choose **SQL dump** under **Source data** to open a UTF-8 plain-text PostgreSQL, MySQL or SQLite dump (up to 50 MB). The browser reads CREATE TABLE, ALTER TABLE ADD and DROP TABLE statements without executing SQL or uploading the file. Choose a format explicitly when a SQL file has no recognizable dump header; changing the format rereads the selected file. Table cards show columns and primary/foreign keys; selecting a table filters incoming and outgoing relationships, including composite keys. Only declared foreign keys are shown. Referenced tables missing from the dump are marked. Data-only dumps, compressed files and PostgreSQL custom archives must first be exported as plain-text SQL with schema.
+
+### SQL editor
+
+Choose **SQL editor** under **Source data** for native PostgreSQL, MySQL/MariaDB and SQL Server queries. It includes SQL completion, query tabs, a table explorer, Ctrl+Enter, result filtering/sorting, cell inspection and CSV/JSON export. Rust streams bounded results; the TypeScript grid virtualizes rows and columns. See [SQL_EDITOR.md](SQL_EDITOR.md) for execution semantics, limits and checks.

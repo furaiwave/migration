@@ -208,7 +208,7 @@ async function main() {
 
 
     await evaluate("(() => { const transfer = new DataTransfer(); transfer.items.add(new File(['dbf'], 'CLIENTS.dbf')); " +
-      "transfer.items.add(new File(['skip'], 'notes.txt')); const input = document.querySelector('input[type=file]'); " +
+      "transfer.items.add(new File(['skip'], 'notes.txt')); const input = document.querySelector('#source input[type=file]'); " +
       "input.files = transfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); })()");
     await waitFor("document.body.innerText.includes('CLIENTS.dbf') && document.body.innerText.includes('.txt')");
     await evaluate("(() => { const input = document.querySelector('#previewRows'); " +
@@ -265,7 +265,7 @@ async function main() {
     }
     assert.equal(apiRequests.length, requestCount, 'language and theme changes do not reupload files or rebuild export plans');
     await captureUI('06-transfer-dark',1440,1000,'#transfer');
-    const targetSelect = "Array.from(document.querySelectorAll('select')).find(s => Array.from(s.options).some(o => o.value === 'postgres'))";
+    const targetSelect = "Array.from(document.querySelectorAll('#transfer select')).find(s => Array.from(s.options).some(o => o.value === 'postgres'))";
     assert.deepEqual(await evaluate('Array.from((' + targetSelect + ').options, o => o.value).sort()'), ['mongo', 'mssql', 'mysql', 'postgres', 'redis']);
     await evaluate("(() => {const s="+targetSelect+";s.value='redis';s.dispatchEvent(new Event('change',{bubbles:true}));})()");
     const redisPanel="Array.from(document.querySelectorAll('h3')).find(h=>h.textContent==='Redis').parentElement";

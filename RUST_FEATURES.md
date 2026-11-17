@@ -82,7 +82,7 @@ Responses from test, catalog and inspect include elapsedMs: total time for conne
 
 ## What Rust does not handle
 
-Existing server services still transfer rows, create tables and manage import transactions. The new commands do not create or delete databases or tables. Service discovery primarily targets Windows. Automatic discovery does not resolve Unix sockets, LocalDB named pipes or every form of included configuration; enter a TCP address manually for those cases.
+Existing server services still transfer rows, create tables and manage import transactions. Discovery and metadata commands do not create or delete databases or tables. The SQL editor query command executes explicitly submitted SQL, including data and schema changes, through Rust drivers. See [SQL_EDITOR.md](SQL_EDITOR.md) for query lifetime, limits and cancellation semantics. Service discovery primarily targets Windows. Automatic discovery does not resolve Unix sockets, LocalDB named pipes or every form of included configuration; enter a TCP address manually for those cases.
 
 Passwords go to the child process through stdin rather than command-line arguments, files or logs. Saved server selections contain only non-secret endpoint settings. Diagnostics and catalog retrieval do not start imports automatically.
 

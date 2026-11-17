@@ -188,3 +188,24 @@ test('English context keys preserve Ukrainian count forms without exposing conte
  assert.equal(i18n.translate('files (few)'),'\u0444\u0430\u0439\u043b\u0438');
  assert.equal(i18n.translate('files (many)'),'\u0444\u0430\u0439\u043b\u0456\u0432');
 });
+
+test('SQL dump messages retain Unicode in every supported language', () => {
+  const keys = new Set();
+  for (const file of ['src/components/SqlDumpPanel.tsx', 'src/lib/sqlDump.ts', 'src/lib/sqlDump.worker.ts']) {
+    const source = ts.createSourceFile(file, readFileSync(path.join(root, file), 'utf8'), ts.ScriptTarget.Latest, true);
+    const visit = node => {
+      if (ts.isStringLiteral(node) && Object.hasOwn(catalog, node.text)) keys.add(node.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  assert.ok(keys.size >= 20);
+  for (const key of keys) {
+    for (const [language, message] of Object.entries(catalog[key])) {
+      assert.doesNotMatch(message, /[?\uFFFD]/, key + ': broken ' + language + ' translation');
+    }
+  }
+  for (const [language, script] of [['uk', /[\u0400-\u04ff]/], ['ja', /[\u3040-\u30ff]/], ['ko', /[\uac00-\ud7af]/]]) {
+    assert.match(catalog['SQL dump'][language], script);
+  }
+});

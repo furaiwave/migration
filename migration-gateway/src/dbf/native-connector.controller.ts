@@ -1,6 +1,8 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import type { Response } from 'express';
+import { Body, Controller, Get, HttpCode, Post, Res } from '@nestjs/common';
 import {
   IsBoolean,
+  IsDefined,
   IsIn,
   IsInt,
   IsOptional,
@@ -8,6 +10,8 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -25,6 +29,19 @@ class NativeConnectionDto {
   @IsOptional() @IsBoolean() trustServerCertificate?: boolean;
   @IsOptional() @IsString() @MaxLength(8192) uri?: string;
 }
+class NativeQueryDto {
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => NativeConnectionDto)
+  connection!: NativeConnectionDto;
+  @IsString() @MinLength(1) @MaxLength(196608) sql!: string;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  maxRows?: number;
+}
 class NativeEndpointDto {
   @IsString() @MaxLength(255) host!: string;
   @Type(() => Number) @IsInt() @Min(1) @Max(65535) port!: number;
@@ -32,6 +49,28 @@ class NativeEndpointDto {
 @Controller('dbf/native')
 export class NativeConnectorController {
   constructor(private readonly connector: NativeConnectorService) {}
+  @Post('query')
+  @HttpCode(200)
+  async query(
+    @Body() input: NativeQueryDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const controller = new AbortController();
+    const close = () => {
+      if (!response.writableEnded) controller.abort();
+    };
+    response.once('close', close);
+    try {
+      return await this.connector.query(
+        input.connection,
+        input.sql,
+        input.maxRows ?? 1000,
+        controller.signal,
+      );
+    } finally {
+      response.removeListener('close', close);
+    }
+  }
   @Get('servers') discover() {
     return this.connector.discover();
   }

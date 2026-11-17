@@ -1,3 +1,4 @@
+import { SqlDumpPanel } from "@/components/SqlDumpPanel";
 import { DatabaseMigrationPanel } from "@/components/DatabaseMigrationPanel";
 import { hasDatabaseMigrationJob } from "@/lib/databaseMigration";
 import { WorkspaceOverview } from "@/components/WorkspaceOverview";
@@ -6,7 +7,7 @@ import { ActivityConsole } from "@/components/ActivityConsole";
 import { translate, useLanguage } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileDropzone } from "@/components/FileDropzone";
@@ -25,9 +26,12 @@ import { errorMessage } from "@/lib/errors";
 import { apiRequest, ApiError, BUNDLED_APP, CLOUD_APP } from "@/client/client";
 import { lastSession, rememberSession } from "@/lib/lastSession";
 
+const SqlWorkspace = lazy(() => import("@/components/SqlWorkspace"));
+
 export default function App() {
   useLanguage();
-  const [mode, setMode] = useState<"files" | "database">("files");
+  const [mode, setMode] = useState<"files" | "database" | "dump" | "editor">("files");
+  const [editorOpened,setEditorOpened] = useState(false);
   const [databaseOpened, setDatabaseOpened] = useState(hasDatabaseMigrationJob);
   const [migrating, setMigrating] = useState(false);
   const handleMigrationBusy = useCallback((busy: boolean) => { setMigrating(busy); if (busy) setMode("database"); }, []);
@@ -147,12 +151,16 @@ export default function App() {
       <main className="workspace-main">
         <label className="mb-5 flex flex-wrap items-center gap-3 text-sm font-semibold">
           {translate("Source data")}
-          <select className="h-10 border bg-background px-3 text-sm" value={mode} disabled={migrating} onChange={event => { setMode(event.target.value as "files" | "database"); if (event.target.value === "database") setDatabaseOpened(true); }}>
+          <select className="h-10 border bg-background px-3 text-sm" value={mode} disabled={migrating} onChange={event => { setMode(event.target.value as "files" | "database" | "dump" | "editor"); if (event.target.value === "database") setDatabaseOpened(true); if(event.target.value === "editor") setEditorOpened(true); }}>
             <option value="files">{translate("Table files")}</option>
+            <option value="editor">{translate("SQL editor")}</option>
+            <option value="dump">{translate("SQL dump")}</option>
             <option value="database">{translate("Between databases")}</option>
           </select>
         </label>
         <div hidden={mode !== "database"}>{databaseOpened && <DatabaseMigrationPanel onBusy={handleMigrationBusy} />}</div>
+        <div hidden={mode !== "editor"}>{editorOpened && <Suspense fallback={<p role="status">{translate("Loading editor\u2026")}</p>}><SqlWorkspace /></Suspense>}</div>
+        <div hidden={mode !== "dump"}><SqlDumpPanel /></div>
         <div hidden={mode !== "files"}>
         <WorkspaceOverview
           session={session}
