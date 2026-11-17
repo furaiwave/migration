@@ -5,7 +5,7 @@ import { setTheme, useTheme } from '@/lib/theme';
 
 export function ThemeToggle() {
   const theme = useTheme();
-  const label = theme === 'dark' ? translate('Світла тема') : translate('Темна тема');
+  const label = theme === 'dark' ? translate("Light theme") : translate("Dark theme");
 
   return (
     <Button

@@ -28,18 +28,18 @@ const normalize = (raw: string): string =>
 export function mysqlTypeError(raw: string): string | null {
     if (raw.trim() === '') return null
     const type = normalize(raw)
-    if (!TYPE_PATTERNS.some((p) => p.test(type))) return translate("Непідтримуваний тип — наприклад INT, BIGINT, DECIMAL(12,2), VARCHAR(100), TEXT, DATE")
+    if (!TYPE_PATTERNS.some((p) => p.test(type))) return translate("Unsupported type — try INT, BIGINT, DECIMAL(12,2), VARCHAR(100), TEXT or DATE")
     const decimal = /^(?:DECIMAL|NUMERIC)\((\d+)(?:,(\d+))?\)$/.exec(type)
     if (decimal) {
         const precision = Number(decimal[1])
         const scale = Number(decimal[2] ?? 0)
-        if (precision < 1 || precision > 65 || scale > 30 || scale > precision) return translate("Точність 1–65, знаків після коми 0–30 і не більше за точність")
+        if (precision < 1 || precision > 65 || scale > 30 || scale > precision) return translate("Precision 1–65; scale 0–30 and no greater than precision")
     }
     const sized = /^(CHAR|BINARY|VARCHAR|VARBINARY)\((\d+)\)$/.exec(type)
     if (sized) {
         const n = Number(sized[2])
         const max = sized[1] === 'CHAR' || sized[1] === 'BINARY' ? 255 : sized[1] === 'VARCHAR' ? 16383 : 65535
-        if (n < 1 || n > max) return translate("Довжина має бути 1–{0}", [max])
+        if (n < 1 || n > max) return translate("Length must be 1–{0}", [max])
     }
     return null
 }
@@ -48,4 +48,4 @@ const IDENTIFIER = /^[A-Za-z0-9_]{1,64}$/
 
 /** Why a table/column name is not accepted, or null. Empty means "back to the generated name". */
 export const identifierError = (raw: string): string | null =>
-    raw === '' || IDENTIFIER.test(raw) ? null : translate("Лише латинські літери, цифри та _, до 64 символів")
+    raw === '' || IDENTIFIER.test(raw) ? null : translate("Latin letters, digits and _ only, up to 64 characters")

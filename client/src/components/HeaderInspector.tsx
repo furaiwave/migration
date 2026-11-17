@@ -11,8 +11,8 @@ function formatLastUpdate({ year, month, day }: DbfHeader['lastUpdate']): string
 function flagsOf(header: DbfHeader): string {
     const flags: string[] = []
     if(header.hasMemo) flags.push('memo')
-    if(header.tableFlags.hasStructuralCdx) flags.push(translate("індекс .cdx"))
-    if(header.tableFlags.isDatabase) flags.push(translate("база .dbc"))
+    if(header.tableFlags.hasStructuralCdx) flags.push(translate(".cdx index"))
+    if(header.tableFlags.isDatabase) flags.push(translate(".dbc database"))
     return flags.length > 0 ? flags.join(', ') : '—'
 }
 
@@ -26,18 +26,18 @@ interface HeaderInspectorProps {
 
 export function HeaderInspector({ header, encoding, memoFile, liveRecords }: HeaderInspectorProps){
     const columns: ReadonlyArray<readonly [label: string, value: string]> = [
-        [translate("Формат"), header.typeName],
-        [translate("Байт типу"), hex(header.typeByte)],
-        [translate("Записи"), liveRecords.toLocaleString(getLanguage())],
-        [translate("Видалені"), (header.recordCount - liveRecords).toLocaleString(getLanguage())],
-        [translate("Поля"), String(header.fields.length)],
-        [translate("Довжина запису"), translate("{0} Б", [header.recordLength])],
-        [translate("Зміщення даних"), `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
-        [translate("Останнє оновлення"), formatLastUpdate(header.lastUpdate)],
-        [translate("Кодова сторінка"), hex(header.codePage)],
-        [translate("Кодування"), encoding ?? '—'],
-        [translate("Ознаки"), flagsOf(header)],
-        [translate("Memo-файл"), memoFile ?? '—'],
+        [translate("Format"), header.typeName],
+        [translate("Type byte"), hex(header.typeByte)],
+        [translate("Records (label)"), liveRecords.toLocaleString(getLanguage())],
+        [translate("Deleted"), (header.recordCount - liveRecords).toLocaleString(getLanguage())],
+        [translate("Fields"), String(header.fields.length)],
+        [translate("Record length"), translate("{0} B", [header.recordLength])],
+        [translate("Data offset"), `${header.firstRecordOffset} (${hex(header.firstRecordOffset)})`],
+        [translate("Last update"), formatLastUpdate(header.lastUpdate)],
+        [translate("Code page"), hex(header.codePage)],
+        [translate("Encoding"), encoding ?? '—'],
+        [translate("Flags"), flagsOf(header)],
+        [translate("Memo file"), memoFile ?? '—'],
     ]
 
     return(

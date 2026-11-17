@@ -185,8 +185,8 @@ export class MongoExportService {
                 parentCollection: fk.parentTable, parentField: parentIsId ? '_id' : fk.parentColumn,
                 source: fk.source, status: 'create', orphans: fk.orphans,
             })
-            addIndex(link.child.table, link.child.column, false, `посилання на ${fk.parentTable}`)
-            if (!parentIsId) addIndex(link.parent.table, link.parent.column, true, `на нього посилається ${fk.childTable}.${fk.childColumn}`)
+            addIndex(link.child.table, link.child.column, false, `reference to ${fk.parentTable}`)
+            if (!parentIsId) addIndex(link.parent.table, link.parent.column, true, `referenced by ${fk.childTable}.${fk.childColumn}`)
         }
 
         const planned = collections.map(c => ({
@@ -197,7 +197,7 @@ export class MongoExportService {
         if (options.writeMode === 'sync') {
             const keyless = planned.filter(c => !c.table.excluded && !c.id).map(c => c.table.name)
             if (keyless.length > 0)
-                warnings.push(`Синхронізація: у колекціях ${keyless.join(', ')} немає _id з первинного ключа — вони очищаються й завантажуються заново під час кожної синхронізації. Виберіть первинний ключ у плані, щоб оновлювати документи за _id.`)
+                warnings.push(`Sync: collections ${keyless.join(', ')} have no primary-key-based _id. They are cleared and reloaded on every sync. Select a primary key in the plan to update documents by _id.`)
         }
 
         return { options, collections: planned, references, source, warnings }
@@ -227,7 +227,7 @@ export class MongoExportService {
         for (const tag of options.indexes ? table.tags : []) {
             const base = { tag: tag.name, expression: tag.expression, filter: tag.filter, unique: false }
             if (tag.name === table.primaryTag) {
-                out.push({ plan: { ...base, name: '_id_', keys: id ? [id.column.name] : [], status: 'primary', note: 'ключ-кандидат у FoxPro — його значення стали _id' }, keys: {} })
+                out.push({ plan: { ...base, name: '_id_', keys: id ? [id.column.name] : [], status: 'primary', note: "FoxPro candidate key; its values are used as _id" }, keys: {} })
                 continue
             }
             const skip = (note: string, keys: string[] = []) =>
@@ -237,19 +237,19 @@ export class MongoExportService {
             try {
                 parts = indexParts(tag.expression, table.dbfFieldNames)
             } catch (err) {
-                skip(`вираз не перетворюється для MongoDB: ${err instanceof Error ? err.message : String(err)}`)
+                skip(`expression cannot be converted for MongoDB: ${err instanceof Error ? err.message : String(err)}`)
                 continue
             }
             if (parts.length === 0) {
-                skip('вираз не використовує полів (лише DELETED() або константи)')
+                skip("expression uses no fields (only DELETED() or constants)")
                 continue
             }
             const keys: Record<string, 1 | -1> = {}
             let problem: string | null = null
             for (const p of parts) {
                 const column = table.columns.find(c => c.field.name === p.field)
-                if (!column) problem = `${p.field} не має поля в MongoDB`
-                else if (column.excluded) problem = `${column.name} виключено з експорту`
+                if (!column) problem = `${p.field} has no corresponding MongoDB field`
+                else if (column.excluded) problem = `${column.name} is excluded from export`
                 if (problem || !column) break
                 keys[column.name] = tag.descending ? -1 : 1
             }
@@ -263,27 +263,27 @@ export class MongoExportService {
                 continue
             }
             if (keyList.length > MAX_INDEX_FIELDS) {
-                skip(`полів: ${keyList.length} — MongoDB дозволяє не більше ${MAX_INDEX_FIELDS} в одному індексі`, keyList)
+                skip(`fields: ${keyList.length}; MongoDB allows at most ${MAX_INDEX_FIELDS} per index`, keyList)
                 continue
             }
             const signature = Object.keys(keys).join(',')
             const same = covered.get(signature)
             if (same) {
-                skip(`ті самі поля, що й ${same}`, keyList)
+                skip(`same fields as ${same}`, keyList)
                 continue
             }
             if (created >= MAX_INDEXES) {
-                skip(`MongoDB дозволяє не більше ${MAX_INDEXES + 1} індексів на колекцію`, keyList)
+                skip(`MongoDB allows at most ${MAX_INDEXES + 1} indexes per collection`, keyList)
                 continue
             }
             const name = uniqueName(`ix_${tag.name}`)
-            covered.set(signature, `індекс ${name}`)
+            covered.set(signature, `index ${name}`)
             created++
             const notes = [
-                parts.some(p => p.prefix) && 'LEFT()/SUBSTR() у FoxPro — MongoDB індексує поле повністю',
-                tag.filter && `FOR ${tag.filter} не переноситься — MongoDB індексує всі документи`,
-                tag.candidate && 'ключ-кандидат у FoxPro — тут звичайний індекс, бо _id інший',
-                tag.unique && 'UNIQUE у FoxPro лише пропускає повтори ключа — тут звичайний індекс',
+                parts.some(p => p.prefix) && "FoxPro LEFT()/SUBSTR(); MongoDB indexes the entire field",
+                tag.filter && `FOR ${tag.filter} is not migrated; MongoDB indexes all documents`,
+                tag.candidate && "FoxPro candidate key; exported as a regular index because _id uses another field",
+                tag.unique && "FoxPro UNIQUE only skips duplicate keys; exported as a regular index",
             ].filter(Boolean)
             out.push({ plan: { ...base, name, keys: keyList, status: 'create', note: notes.length > 0 ? notes.join('; ') : undefined }, keys })
         }
@@ -293,7 +293,7 @@ export class MongoExportService {
             const served = [...covered.keys()].some(sig => sig === ref.field || (!ref.unique && sig.startsWith(`${ref.field},`)))
             if (served || created >= MAX_INDEXES) continue
             const name = uniqueName(`${ref.unique ? 'uq' : 'ref'}_${ref.field}`)
-            covered.set(ref.field, `індекс ${name}`)
+            covered.set(ref.field, `index ${name}`)
             created++
             out.push({
                 plan: { tag: null, expression: null, filter: null, name, keys: [ref.field], unique: ref.unique, status: 'create', note: ref.note },
@@ -424,19 +424,19 @@ export class MongoExportService {
         const { options } = plan
         const collections = plan.collections.filter(c => !c.table.excluded)
         const mode = {
-            replace: 'заміна (колекції видаляються й створюються заново)',
-            append: 'дописування (документи додаються до наявних колекцій)',
-            sync: `синхронізація (документи замінюються за _id${options.syncDeletes ? ', документи, яких уже немає в DBF, видаляються' : ''})`,
+            replace: "replace (collections are dropped and recreated)",
+            append: "append (documents are added to existing collections)",
+            sync: `sync (documents are replaced by _id${options.syncDeletes ? ", documents no longer present in the source are deleted" : ''})`,
         }[options.writeMode]
 
-        yield '// Скрипт mongosh, створений dbf inspector\n' +
+        yield "// mongosh script generated by Data Migrator\n" +
             `// ${new Date().toISOString()}\n` +
-            `// Режим: ${mode}\n` +
-            `// Колекції: ${collections.map(c => `${c.table.name} (${c.table.fileName}, документів: ${c.table.rowCount})`).join(', ')}\n` +
-            `// Запуск: mongosh "mongodb://localhost:27017" ${options.database ?? 'dbf_export'}.js\n\n`
-        for (const w of plan.warnings) yield `// ПОПЕРЕДЖЕННЯ: ${w.replace(/\n/g, ' ')}\n`
+            `// Mode: ${mode}\n` +
+            `// Collections: ${collections.map(c => `${c.table.name} (${c.table.fileName}, documents: ${c.table.rowCount})`).join(', ')}\n` +
+            `// Run: mongosh "mongodb://localhost:27017" ${options.database ?? "data_export"}.js\n\n`
+        for (const w of plan.warnings) yield `// WARNING: ${w.replace(/\n/g, ' ')}\n`
         for (const q of plan.source.quality)
-            yield `// ${q.effect === 'fail' ? 'ПОМИЛКА ДАНИХ' : 'ВТРАТА ДАНИХ'}: ${q.table}.${q.column}: ${q.problem} (значень: ${q.count})\n`
+            yield `// ${q.effect === 'fail' ? "DATA ERROR" : "DATA LOSS"}: ${q.table}.${q.column}: ${q.problem} (values: ${q.count})\n`
 
         yield `\nconst target = ${options.database ? `db.getSiblingDB(${JSON.stringify(options.database)})` : 'db'};\n` +
             'const collection = (name) => target.getCollection(name);\n\n'
@@ -449,7 +449,7 @@ export class MongoExportService {
             }
             yield shellOp(op)
         }
-        yield '\nprint("Готово.");\n'
+        yield "\nprint(\"Done.\");\n"
     }
 }
 
@@ -472,7 +472,7 @@ function shellOp(op: MongoOp): string {
                 '  ]).toArray().map(d => d._id);\n' +
                 `  for (let i = 0; i < gone.length; i += ${DELETE_BATCH}) ${c}.deleteMany({ _id: { $in: gone.slice(i, i + ${DELETE_BATCH}) } });\n` +
                 `  collection(${JSON.stringify(SYNC_KEYS_COLLECTION)}).drop();\n` +
-                `  print(${JSON.stringify(`  видалено документів, яких немає в DBF: `)} + gone.length);\n` +
+                `  print(${JSON.stringify(`  deleted documents no longer present in the source: `)} + gone.length);\n` +
                 '}\n'
         case 'index':
             return `${c}.createIndex(${shellLiteral(op.keys)}, { name: ${JSON.stringify(op.name)}${op.unique ? ', unique: true' : ''} });\n`

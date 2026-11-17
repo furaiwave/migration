@@ -22,9 +22,9 @@ const URI_PATTERN = /^mongodb(\+srv)?:\/\/\S+$/
 const POLL_MS = 500
 
 const EXISTING_COLLECTIONS: Readonly<Record<MysqlWriteMode, string>> = {
-    get replace() { return translate("її колекції з такими самими назвами буде замінено") },
-    get append() { return translate("документи буде додано до її наявних колекцій") },
-    get sync() { return translate("її колекції отримають нові та змінені документи") },
+    get replace() { return translate("its collections with matching names will be replaced") },
+    get append() { return translate("documents will be added to its existing collections") },
+    get sync() { return translate("its collections will receive new and changed documents") },
 }
 
 interface MongoImportFormProps {
@@ -89,15 +89,15 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
     return (
         <div className="flex flex-col gap-4 border p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-xs font-semibold">{translate("Імпорт напряму в MongoDB")}</h3>
+                <h3 className="text-xs font-semibold">{translate("Direct import to MongoDB")}</h3>
                 <p className="text-xs text-muted-foreground">
-                    {translate("Виконує на вашому сервері те саме, що й скрипт вище. Використовує налаштування вище; назва бази даних обов'язкова.")}
+                    {translate("Runs the script above on your server using the selected settings. A database name is required.")}
                 </p>
             </div>
 
             <div className="flex flex-wrap items-end gap-4">
                 <div className="flex min-w-80 flex-1 flex-col gap-1.5">
-                    <Label htmlFor="mongoUri" className="text-xs text-muted-foreground">{translate("Рядок підключення")}</Label>
+                    <Label htmlFor="mongoUri" className="text-xs text-muted-foreground">{translate("Connection string")}</Label>
                     <Input
                         id="mongoUri"
                         value={uri}
@@ -111,42 +111,42 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
                 </div>
                 <Button variant="outline" disabled={!uriValid || busy} onClick={onTest}>
                     {test.isPending ? <Loader2 className="animate-spin" /> : <PlugZap />}
-                    {translate("Перевірити з'єднання")}
+                    {translate("Test connection")}
                 </Button>
                 <Button disabled={!uriValid || busy || !database || !databaseValid || blockingIssues > 0} onClick={onImport}>
                     {runImport.isPending ? <Loader2 className="animate-spin" /> : <DatabaseZap />}
-                    {database ? translate("Імпортувати в {0}", [database]) : translate("Вкажіть назву бази даних вище")}
+                    {database ? translate("Import to {0}", [database]) : translate("Enter a database name above")}
                 </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-                {translate("Логін і пароль, якщо потрібні, — у самому рядку:")} <code className="bg-muted px-1">mongodb://user:password@host:27017/?authSource=admin</code>{translate(". Для Atlas —")} <code className="bg-muted px-1">mongodb+srv://…</code>.
+                {translate("Include credentials in the connection string if needed:")} <code className="bg-muted px-1">mongodb://user:password@host:27017/?authSource=admin</code>{translate(". For Atlas use")} <code className="bg-muted px-1">mongodb+srv://…</code>.
             </p>
 
-            {!uriValid && <p className="text-xs text-destructive">{translate("Рядок підключення має починатися з mongodb:// або mongodb+srv://")}</p>}
+            {!uriValid && <p className="text-xs text-destructive">{translate("The connection string must start with mongodb:// or mongodb+srv://")}</p>}
             <NativeSchemaInspector connection={{engine:'mongo',uri:uri.trim(),database:options.database}} disabled={!!busy || !databaseValid} />
             {blockingIssues > 0 && (
                 <p className="text-xs text-destructive">
-                    {translate("Імпорт заблоковано: через проблеми в даних (")}{blockingIssues}{translate(") MongoDB відхилить документи. Див. «Якість даних» нижче.")}
+                    {translate("Import blocked: data issues (")}{blockingIssues}{translate(") would make MongoDB reject documents. See Data quality below.")}
                 </p>
             )}
             {test.state.status === 'success' && (
                 <p className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="size-3.5" />
-                    {translate("Підключено до MongoDB")} {test.state.data.serverVersion}.
+                    {translate("Connected to MongoDB")} {test.state.data.serverVersion}.
                     {database && databasesListed && (databaseExists
-                        ? translate(" База даних \"{0}\" існує — {1}.", [database, EXISTING_COLLECTIONS[options.writeMode]])
-                        : translate(" Базу даних \"{0}\" буде створено.", [database]))}
+                        ? translate(" Database \"{0}\" exists — {1}.", [database, EXISTING_COLLECTIONS[options.writeMode]])
+                        : translate(" Database \"{0}\" will be created.", [database]))}
                 </p>
             )}
             {test.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(test.state.error)}</p>}
             {runImport.isPending && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin" /> {translate("Перевіряю дані й підключаюся…")}
+                    <Loader2 className="size-3.5 animate-spin" /> {translate("Checking data and connecting…")}
                 </p>
             )}
             {runImport.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(runImport.state.error)}</p>}
             {job?.state === 'running' && <ImportProgress job={job} onCancel={onCancel} cancelling={cancelling} />}
-            {pollError && <p className="text-xs text-destructive">{translate("Втрачено зв'язок з імпортом:")} {errorMessage(pollError)} {translate("— пробую ще раз…")}</p>}
+            {pollError && <p className="text-xs text-destructive">{translate("Lost connection to the import:")} {errorMessage(pollError)} {translate("— retrying…")}</p>}
             {(job?.state === 'failed' || job?.state === 'cancelled') && <p className="text-xs text-destructive">{job.error}</p>}
             {job?.state === 'done' && job.result && <ImportResultTable result={job.result} />}
         </div>
@@ -160,31 +160,31 @@ function ImportProgress({ job, onCancel, cancelling }: { job: MongoImportStatus;
     const remainingMs = rate > 0 && p.rowsTotal > p.rowsDone ? ((p.rowsTotal - p.rowsDone) / rate) * 1000 : null
 
     const stage =
-        p.phase === 'indexes' ? translate("Створюю індекси · {0} з {1}", [p.indexesDone, p.indexesTotal])
-        : p.phase === 'verifying' ? translate("Рахую документи в MongoDB для перевірки…")
-        : p.collectionIndex === 0 ? translate("Починаю…")
-        : translate("Колекція {0} з {1} · {2}", [p.collectionIndex, p.collectionCount, p.collection]) +
-          (p.collectionRows > 0 ? ` · ${p.collectionRowsDone.toLocaleString(getLanguage())} / ${p.collectionRows.toLocaleString(getLanguage())} ${plural(p.collectionRows, translate("документа"), translate("документів"), translate("документів"))}` : '')
+        p.phase === 'indexes' ? translate("Creating indexes · {0} of {1}", [p.indexesDone, p.indexesTotal])
+        : p.phase === 'verifying' ? translate("Counting MongoDB documents to verify…")
+        : p.collectionIndex === 0 ? translate("Starting…")
+        : translate("Collection {0} of {1} · {2}", [p.collectionIndex, p.collectionCount, p.collection]) +
+          (p.collectionRows > 0 ? ` · ${p.collectionRowsDone.toLocaleString(getLanguage())} / ${p.collectionRows.toLocaleString(getLanguage())} ${plural(p.collectionRows, translate("document (count)"), translate("documents (many)"), translate("documents (many)"))}` : '')
 
     return (
         <div className="flex flex-col gap-2 border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="flex items-center gap-2 font-medium">
-                    <Loader2 className="size-3.5 animate-spin" /> {translate("Імпорт у \"")}{job.database}" — {stage}
+                    <Loader2 className="size-3.5 animate-spin" /> {translate("Import to \"")}{job.database}" — {stage}
                 </span>
                 <Button variant="outline" size="sm" onClick={onCancel} disabled={cancelling}>
-                    <Square /> {cancelling ? translate("Зупиняю…") : translate("Зупинити")}
+                    <Square /> {cancelling ? translate("Stopping…") : translate("Stop")}
                 </Button>
             </div>
             <ProgressBar value={done} max={total} />
             {p.phase === 'collections' && p.collectionRows > 0 && <ProgressBar value={p.collectionRowsDone} max={p.collectionRows} />}
             {p.phase === 'indexes' && p.indexesTotal > 0 && <ProgressBar value={p.indexesDone} max={p.indexesTotal} />}
             <p className="text-xs text-muted-foreground tabular-nums">
-                {p.rowsTotal > 0 && translate("усього {0} / {1} {2} · ", [p.rowsDone.toLocaleString(getLanguage()), p.rowsTotal.toLocaleString(getLanguage()), plural(p.rowsTotal, translate("документа"), translate("документів"), translate("документів"))])}
-                {translate("минуло")} {formatDuration(p.elapsedMs)}
-                {rate > 0 && translate(" · {0} док./с", [Math.round(rate).toLocaleString(getLanguage())])}
-                {remainingMs !== null && translate(" · залишилося близько {0}", [formatDuration(remainingMs)])}
-                {' · '}{translate("після зупинки вже завантажені колекції залишаються")}
+                {p.rowsTotal > 0 && translate("total {0} / {1} {2} · ", [p.rowsDone.toLocaleString(getLanguage()), p.rowsTotal.toLocaleString(getLanguage()), plural(p.rowsTotal, translate("document (count)"), translate("documents (many)"), translate("documents (many)"))])}
+                {translate("elapsed")} {formatDuration(p.elapsedMs)}
+                {rate > 0 && translate(" · {0} docs/s", [Math.round(rate).toLocaleString(getLanguage())])}
+                {remainingMs !== null && translate(" · about {0} remaining", [formatDuration(remainingMs)])}
+                {' · '}{translate("collections already imported remain after stopping")}
             </p>
         </div>
     )
@@ -194,13 +194,13 @@ type ResultRow = MongoImportResult['collections'][number]
 
 /** How a collection's document count compares, read with the write mode in mind. */
 function checkOf(c: ResultRow, result: MongoImportResult): { ok: boolean; text: string } {
-    if (c.importedRows === c.expectedRows) return { ok: true, get text() { return translate("збігається") } }
+    if (c.importedRows === c.expectedRows) return { ok: true, get text() { return translate("matches") } }
     // A sync that keeps documents deleted in the old system leaves them in MongoDB on purpose.
     if (result.writeMode === 'sync' && !result.syncDeletes && c.importedRows > c.expectedRows && !c.sync?.reloaded)
-        return { ok: true, text: translate("+{0} залишено (немає в DBF)", [(c.importedRows - c.expectedRows).toLocaleString(getLanguage())]) }
+        return { ok: true, text: translate("+{0} retained (not in the source)", [(c.importedRows - c.expectedRows).toLocaleString(getLanguage())]) }
     if (result.writeMode === 'append' && c.importedRows > c.expectedRows)
-        return { ok: true, text: translate("+{0} уже були в колекції", [(c.importedRows - c.expectedRows).toLocaleString(getLanguage())]) }
-    return { ok: false, get text() { return translate("не збігається") } }
+        return { ok: true, text: translate("+{0} already in collection", [(c.importedRows - c.expectedRows).toLocaleString(getLanguage())]) }
+    return { ok: false, get text() { return translate("mismatch") } }
 }
 
 function ImportResultTable({ result }: { result: MongoImportResult }) {
@@ -216,26 +216,26 @@ function ImportResultTable({ result }: { result: MongoImportResult }) {
         <div className="flex flex-col gap-2">
             <p className={cn('flex items-center gap-2 text-xs', allMatch ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive')}>
                 {allMatch ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}
-                {sync ? translate("Синхронізацію") : translate("Імпорт")} {allMatch ? translate("завершено") : translate("завершено з розбіжностями в кількості документів")} — "{result.database}{translate("\" на MongoDB")} {result.serverVersion},
-                {' '}{translate("колекцій:")} {result.collections.length}{translate(", індексів:")} {result.indexesCreated}, {(result.durationMs / 1000).toFixed(1)} {translate("с.")}
-                {sync && translate(" Нових: {0}, змінених: {1}, без змін: {2}", [total('inserted').toLocaleString(getLanguage()), total('updated').toLocaleString(getLanguage()), total('unchanged').toLocaleString(getLanguage())]) +
-                    (result.syncDeletes ? translate(", видалених: {0}", [total('deleted').toLocaleString(getLanguage())]) : '') +
-                    (reloaded > 0 ? translate("; колекцій без _id з ключа, завантажених заново повністю: {0}.", [reloaded]) : '.')}
+                {sync ? translate("Synchronization") : translate("Import")} {allMatch ? translate("completed") : translate("completed with document count mismatches")} — "{result.database}{translate("\" on MongoDB")} {result.serverVersion},
+                {' '}{translate("collections:")} {result.collections.length}{translate(", indexes:")} {result.indexesCreated}, {(result.durationMs / 1000).toFixed(1)} {translate("s.")}
+                {sync && translate(" New: {0}, updated: {1}, unchanged: {2}", [total('inserted').toLocaleString(getLanguage()), total('updated').toLocaleString(getLanguage()), total('unchanged').toLocaleString(getLanguage())]) +
+                    (result.syncDeletes ? translate(", deleted: {0}", [total('deleted').toLocaleString(getLanguage())]) : '') +
+                    (reloaded > 0 ? translate("; collections without a primary-key _id fully reloaded: {0}.", [reloaded]) : '.')}
             </p>
             <Table containerClassName="max-h-[50vh]">
                 <TableHeader>
                     <TableRow>
-                        <TableHead>{translate("Файл DBF")}</TableHead>
-                        <TableHead>{translate("Колекція MongoDB")}</TableHead>
-                        <TableHead className="text-right">{translate("Записів у DBF")}</TableHead>
-                        <TableHead className="text-right">{translate("Документів у MongoDB")}</TableHead>
+                        <TableHead>{translate("Source file")}</TableHead>
+                        <TableHead>{translate("MongoDB collection")}</TableHead>
+                        <TableHead className="text-right">{translate("Source records")}</TableHead>
+                        <TableHead className="text-right">{translate("MongoDB documents")}</TableHead>
                         {sync && <>
-                            <TableHead className="text-right">{translate("Нові")}</TableHead>
-                            <TableHead className="text-right">{translate("Змінені")}</TableHead>
-                            <TableHead className="text-right">{translate("Без змін")}</TableHead>
-                            <TableHead className="text-right">{translate("Видалені")}</TableHead>
+                            <TableHead className="text-right">{translate("New")}</TableHead>
+                            <TableHead className="text-right">{translate("Updated")}</TableHead>
+                            <TableHead className="text-right">{translate("Unchanged")}</TableHead>
+                            <TableHead className="text-right">{translate("Deleted")}</TableHead>
                         </>}
-                        <TableHead>{translate("Перевірка")}</TableHead>
+                        <TableHead>{translate("Verification")}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -243,13 +243,13 @@ function ImportResultTable({ result }: { result: MongoImportResult }) {
                         const check = checks.get(c)!
                         return (
                             <TableRow key={c.collection}>
-                                <TableCell>{c.fileName}{c.role === 'deleted' && <span className="text-muted-foreground">  {translate("· видалені записи")}</span>}</TableCell>
+                                <TableCell>{c.fileName}{c.role === 'deleted' && <span className="text-muted-foreground">  {translate("· deleted records")}</span>}</TableCell>
                                 <TableCell className="font-medium">{result.database}.{c.collection}</TableCell>
                                 <TableCell className="text-right tabular-nums">{c.expectedRows.toLocaleString(getLanguage())}</TableCell>
                                 <TableCell className="text-right tabular-nums">{c.importedRows.toLocaleString(getLanguage())}</TableCell>
                                 {sync && (c.sync?.reloaded ? (
                                     <TableCell colSpan={4} className="text-right text-muted-foreground">
-                                        {translate("завантажено заново:")} {c.sync.inserted.toLocaleString(getLanguage())} {plural(c.sync.inserted, translate("документ"), translate("документи"), translate("документів"))}
+                                        {translate("reloaded:")} {c.sync.inserted.toLocaleString(getLanguage())} {plural(c.sync.inserted, translate("document (standalone)"), translate("documents (few)"), translate("documents (many)"))}
                                     </TableCell>
                                 ) : <>
                                     <TableCell className="text-right tabular-nums">{(c.sync?.inserted ?? 0).toLocaleString(getLanguage())}</TableCell>

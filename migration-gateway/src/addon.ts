@@ -159,14 +159,14 @@ const CYRILLIC_CANDIDATES = ['cp866', 'windows-1251', 'koi8-r'] as const
 // DOS (FoxPro 2.x, Clipper) or Windows (Visual FoxPro) Western text.
 const WESTERN_CANDIDATES = ['cp850', 'windows-1252'] as const
 // The most frequent Russian letters; wrong decodings land on rarer letters or pseudographics.
-const FREQUENT_RUSSIAN = new Set('оеаинтсрвлкмдпуОЕАИНТСРВЛКМДПУ')
+const FREQUENT_RUSSIAN = new Set('\u043e\u0435\u0430\u0438\u043d\u0442\u0441\u0440\u0432\u043b\u043a\u043c\u0434\u043f\u0443\u041e\u0415\u0410\u0418\u041d\u0422\u0421\u0420\u0412\u041b\u041a\u041c\u0414\u041f\u0423')
 const DETECT_SAMPLE_BYTES = 256 * 1024
 
 const LETTER = /\p{L}/u
 const LOWER = /\p{Ll}/u
 const UPPER = /\p{Lu}/u
 const LATIN = /[A-Za-z]/
-const CYRILLIC = /[Ѐ-ӿ]/
+const CYRILLIC = /[\u0400-\u04ff]/
 
 /**
  * Whether the text pieces read as UTF-8 with at least one multi-byte character. A piece may end
@@ -191,7 +191,7 @@ function looksLikeUtf8(parts: readonly Buffer[]): boolean {
     return multibyte > 0
 }
 
-/** Share of Cyrillic words that also contain Latin letters: "penedКs" is a wrong decoding, not Russian. */
+/** Cyrillic words containing Latin letters can indicate an incorrect decoding. */
 function mixedScriptShare(text: string): number {
     let cyrillic = 0
     let mixed = 0
@@ -372,10 +372,10 @@ export function binaryFieldText(type: string, slice: Buffer, typeByte: number): 
 function previewMemo(slice: Buffer, isText: boolean, decoder: TextDecoderLike, memo: MemoReader | null): string {
     const block = memoBlockOf(slice)
     if (block === 0) return ''
-    if (!memo) return `(memo: блок ${block}, memo-файл не завантажено)`
+    if (!memo) return `(memo: block ${block}, memo file not uploaded)`
     const data = memo.read(block)
-    if (!data) return `(memo: блок ${block} не знайдено)`
-    if (!isText) return `(memo: двійкові дані, ${data.length} ${plural(data.length, 'байт', 'байти', 'байтів')})`
+    if (!data) return `(memo: block ${block} not found)`
+    if (!isText) return `(memo: binary data, ${data.length} ${plural(data.length, "byte", "bytes")})`
     const text = decodeMemoText(decoder, data)
     return text.length > PREVIEW_MEMO_CHARS ? `${text.slice(0, PREVIEW_MEMO_CHARS)}…` : text
 }
@@ -543,7 +543,7 @@ export function parseDbfBuffer(
     encoding: string | null = null,
 ): RawDbfParseResult {
     if (buffer.length < HEADER_SIZE) {
-        throw new Error(`DBF-файл замалий: ${buffer.length} ${plural(buffer.length, 'байт', 'байти', 'байтів')}`)
+        throw new Error(`Table file is too small: ${buffer.length} ${plural(buffer.length, "byte", "bytes")}`)
     }
 
     const typeByte = buffer.readUInt8(0) as DbfFileTypeByte
@@ -551,10 +551,10 @@ export function parseDbfBuffer(
     const { recordCount, firstRecordOffset, recordLength, codePage } = layout
 
     if (firstRecordOffset < HEADER_SIZE || firstRecordOffset > buffer.length) {
-        throw new Error(`Некоректне зміщення першого запису: ${firstRecordOffset}`)
+        throw new Error(`Invalid first record offset: ${firstRecordOffset}`)
     }
     if (recordLength <= 0) {
-        throw new Error(`Некоректна довжина запису: ${recordLength}`)
+        throw new Error(`Invalid record length: ${recordLength}`)
     }
 
     const rawFields = readDescriptors(buffer, layout, typeByte)

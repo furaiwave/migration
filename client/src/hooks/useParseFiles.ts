@@ -16,7 +16,7 @@ async function parseFiles(input: ParseFilesInput): Promise<ParseMultipleResult>{
         try {
             await file.slice(0, 1).arrayBuffer()
         } catch (cause) {
-            throw new LocalizedError("Не вдалося прочитати файл «{0}». Він міг змінитися після вибору або бути недоступним. Закрийте програму, яка його змінює, приберіть файл зі списку й виберіть його знову.", [file.name], { cause })
+            throw new LocalizedError("Could not read “{0}”. The file may have changed or become unavailable. Close the program modifying it, remove it from the list and choose it again.", [file.name], { cause })
         }
         form.append('files', file, file.name)
     }

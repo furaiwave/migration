@@ -26,20 +26,20 @@ const PK_AUTO = '__auto__'
 const PK_NONE = '__none__'
 
 const BSON_LABEL: Readonly<Record<BsonType, string>> = {
-    get string() { return translate("рядок (string)") },
-    get int() { return translate("ціле (int)") },
-    get long() { return translate("ціле (long)") },
-    get decimal() { return translate("десяткове (decimal)") },
-    get double() { return translate("дробове (double)") },
-    get date() { return translate("дата (date)") },
-    get bool() { return translate("логічне (bool)") },
-    get binData() { return translate("двійкове (binData)") },
+    get string() { return translate("string") },
+    get int() { return translate("integer (int)") },
+    get long() { return translate("integer (long)") },
+    get decimal() { return translate("decimal") },
+    get double() { return translate("double") },
+    get date() { return translate("date") },
+    get bool() { return translate("boolean") },
+    get binData() { return translate("binary (binData)") },
 }
 
 const SOURCE_LABEL: Readonly<Record<MongoReferencePlan['source'], string>> = {
-    get auto_name() { return translate("збіг назв") },
-    get auto_fk() { return translate("зовнішній ключ") },
-    get manual() { return translate("вручну") },
+    get auto_name() { return translate("name match") },
+    get auto_fk() { return translate("foreign key") },
+    get manual() { return translate("manual") },
 }
 
 interface PlanEdits {
@@ -74,26 +74,26 @@ export function MongoPlanTables({ plan, dataChecked, ...edits }: MongoPlanTables
             <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 className="text-sm font-semibold">
-                        {translate("Колекції й поля")}
+                        {translate("Collections and fields")}
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            {translate("одна таблиця — одна колекція, один запис — один документ · назви редагуються прямо тут · порожньо = автоматично")}
+                            {translate("one table per collection, one record per document · edit names here · empty = automatic")}
                         </span>
                     </h3>
                     {hasEdits && (
                         <Button variant="outline" size="sm" onClick={edits.onReset}>
-                            <RotateCcw /> {translate("Скинути всі зміни")}
+                            <RotateCcw /> {translate("Reset all changes")}
                         </Button>
                     )}
                 </div>
                 <Table containerClassName="max-h-[70vh]">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-12 text-center" title={translate("Експортувати це поле")}>{translate("Вкл.")}</TableHead>
-                            <TableHead>{translate("Поле DBF")}</TableHead>
-                            <TableHead>{translate("Тип DBF")}</TableHead>
-                            <TableHead>{translate("Поле документа")}</TableHead>
-                            <TableHead>{translate("Тип BSON")}</TableHead>
-                            <TableHead>{translate("Примітка")}</TableHead>
+                            <TableHead className="w-12 text-center" title={translate("Export this field")}>{translate("On")}</TableHead>
+                            <TableHead>{translate("Source field")}</TableHead>
+                            <TableHead>{translate("Source type")}</TableHead>
+                            <TableHead>{translate("Document field")}</TableHead>
+                            <TableHead>{translate("BSON type")}</TableHead>
+                            <TableHead>{translate("Note")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -114,7 +114,7 @@ export function MongoPlanTables({ plan, dataChecked, ...edits }: MongoPlanTables
 
             {plan.warnings.length > 0 && (
                 <div className="flex flex-col gap-2">
-                    <h3 className="text-sm font-semibold">{translate("Попередження")}</h3>
+                    <h3 className="text-sm font-semibold">{translate("Warnings")}</h3>
                     <Table>
                         <TableBody>
                             {plan.warnings.map((w) => (
@@ -137,8 +137,8 @@ function CollectionRow({ collection: c, overrides, onTable, syncMode }: { collec
     const included = c.fields.filter((f) => !f.excluded)
     const idValue = override.primaryKey === undefined ? PK_AUTO : override.primaryKey === null ? PK_NONE : override.primaryKey
     const idItems = [
-        { value: PK_AUTO, label: c.idField ? translate("автоматично ({0})", [c.idField]) : translate("автоматично") },
-        { value: PK_NONE, get label() { return translate("ObjectId — без ключа") } },
+        { value: PK_AUTO, label: c.idField ? translate("automatic ({0})", [c.idField]) : translate("automatic") },
+        { value: PK_NONE, get label() { return translate("ObjectId — no key") } },
         ...included.map((f) => ({ value: f.dbfField, label: f.field })),
     ]
 
@@ -149,7 +149,7 @@ function CollectionRow({ collection: c, overrides, onTable, syncMode }: { collec
                     type="checkbox"
                     className="size-3.5 cursor-pointer accent-primary align-middle"
                     checked={!override.exclude}
-                    aria-label={translate("Експортувати {0}", [c.fileName])}
+                    aria-label={translate("Export {0}", [c.fileName])}
                     onChange={(e) => onTable(c.fileName, { exclude: e.target.checked ? undefined : true })}
                 />
             </TableCell>
@@ -166,10 +166,10 @@ function CollectionRow({ collection: c, overrides, onTable, syncMode }: { collec
                         className="w-48"
                     />
                     {c.excluded ? (
-                        <span className="text-muted-foreground">{translate("не входить в експорт")}</span>
+                        <span className="text-muted-foreground">{translate("excluded from export")}</span>
                     ) : (
                         <>
-                            <span className="flex items-center gap-2 text-muted-foreground" title={translate("Значення цього поля стає _id документа")}>
+                            <span className="flex items-center gap-2 text-muted-foreground" title={translate("This field becomes the document _id")}>
                                 _id
                                 <Select
                                     items={idItems}
@@ -187,14 +187,14 @@ function CollectionRow({ collection: c, overrides, onTable, syncMode }: { collec
                                 </Select>
                             </span>
                             <span className="font-normal text-muted-foreground">
-                                {translate("полів:")} {included.length} {translate("з")} {c.fields.length} {translate("· документів:")} {c.rowCount.toLocaleString(getLanguage())} · {c.encoding}
+                                {translate("fields:")} {included.length} {translate("of")} {c.fields.length} {translate("· documents:")} {c.rowCount.toLocaleString(getLanguage())} · {c.encoding}
                                 {c.deletedRows > 0 && (c.deletedCollection
-                                    ? translate(" · видалених: {0} → {1}", [c.deletedRows.toLocaleString(getLanguage()), c.deletedCollection])
-                                    : translate(" · видалених: {0} (пропускаються)", [c.deletedRows.toLocaleString(getLanguage())]))}
+                                    ? translate(" · deleted: {0} → {1}", [c.deletedRows.toLocaleString(getLanguage()), c.deletedCollection])
+                                    : translate(" · deleted: {0} (skipped)", [c.deletedRows.toLocaleString(getLanguage())]))}
                                 {c.memoFile && ` · memo ${c.memoFile}`}
-                                {c.indexFile && translate(" · індекси {0}", [c.indexFile])}
-                                {syncMode && c.sync === 'reload' && translate(" · без _id з ключа: синхронізація завантажує колекцію заново")}
-                                {c.skippedFields.length > 0 && translate(" · не переносяться: {0}", [c.skippedFields.join(', ')])}
+                                {c.indexFile && translate(" · indexes {0}", [c.indexFile])}
+                                {syncMode && c.sync === 'reload' && translate(" · no primary-key _id: sync reloads the collection")}
+                                {c.skippedFields.length > 0 && translate(" · not transferred: {0}", [c.skippedFields.join(', ')])}
                             </span>
                         </>
                     )}
@@ -214,7 +214,7 @@ function FieldRow({ collection: c, field: f, overrides, onColumn }: { collection
                     type="checkbox"
                     className="size-3.5 cursor-pointer accent-primary align-middle"
                     checked={!f.excluded}
-                    aria-label={translate("Експортувати {0}.{1}", [c.fileName, f.dbfField])}
+                    aria-label={translate("Export {0}.{1}", [c.fileName, f.dbfField])}
                     onChange={(e) => onColumn(c.fileName, f.dbfField, { exclude: e.target.checked ? undefined : true })}
                 />
             </TableCell>
@@ -241,7 +241,7 @@ function FieldRow({ collection: c, field: f, overrides, onColumn }: { collection
                 </span>
             </TableCell>
             <TableCell className="text-muted-foreground">{f.excluded ? '' : BSON_LABEL[f.bsonType]}</TableCell>
-            <TableCell className="text-muted-foreground">{f.excluded ? translate("не експортується") : f.note ?? ''}</TableCell>
+            <TableCell className="text-muted-foreground">{f.excluded ? translate("not exported") : f.note ?? ''}</TableCell>
         </TableRow>
     )
 }
@@ -253,25 +253,25 @@ function ReferenceTable({ references }: { references: readonly MongoReferencePla
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
-                {translate("Посилання між колекціями")}
+                {translate("References between collections")}
                 <span className="ml-2 font-normal text-muted-foreground">
-                    {translate("дочірній документ зберігає значення батьківського; з'єднуються через $lookup · перевірено:")} {created}{translate(", пропущено:")} {references.length - created}
+                    {translate("child documents store parent values; joined with $lookup · verified:")} {created}{translate(", skipped:")} {references.length - created}
                 </span>
             </h3>
             {references.length === 0 ? (
                 <div className="flex h-16 items-center justify-center border border-dashed text-xs text-muted-foreground">
-                    {translate("Немає зв'язків між таблицями.")}
+                    {translate("No relationships between tables.")}
                 </div>
             ) : (
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>{translate("Статус")}</TableHead>
-                            <TableHead>{translate("Дочірнє поле")}</TableHead>
+                            <TableHead>{translate("Status")}</TableHead>
+                            <TableHead>{translate("Child field")}</TableHead>
                             <TableHead className="w-10 text-center">→</TableHead>
-                            <TableHead>{translate("Батьківське поле")}</TableHead>
-                            <TableHead>{translate("Як знайдено")}</TableHead>
-                            <TableHead>{translate("Причина")}</TableHead>
+                            <TableHead>{translate("Parent field")}</TableHead>
+                            <TableHead>{translate("Detected by")}</TableHead>
+                            <TableHead>{translate("Reason")}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -279,8 +279,8 @@ function ReferenceTable({ references }: { references: readonly MongoReferencePla
                             <TableRow key={`${r.childCollection}.${r.childField}-${r.parentCollection}.${r.parentField}-${i}`}>
                                 <TableCell>
                                     {r.status === 'create'
-                                        ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">{translate("посилання")}</Badge>
-                                        : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">{translate("пропустити")}</Badge>}
+                                        ? <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 dark:text-emerald-300">{translate("reference")}</Badge>
+                                        : <Badge variant="outline" className="border-amber-500/30 text-amber-700 dark:text-amber-300">{translate("skip")}</Badge>}
                                 </TableCell>
                                 <TableCell>{r.childCollection}.{r.childField}</TableCell>
                                 <TableCell className="text-center text-muted-foreground">→</TableCell>
@@ -289,7 +289,7 @@ function ReferenceTable({ references }: { references: readonly MongoReferencePla
                                 <TableCell className={cn('whitespace-normal', r.status === 'skip' && 'text-muted-foreground')}>
                                     {r.status === 'skip' ? r.reason : r.orphans ? (
                                         <span className="text-amber-700 dark:text-amber-300">{orphansNote(r.orphans, 'null')}</span>
-                                    ) : translate("кожне значення знайдено в батьківській колекції")}
+                                    ) : translate("all values exist in the parent collection")}
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -303,10 +303,10 @@ function ReferenceTable({ references }: { references: readonly MongoReferencePla
 // ---------------------------------------------------------------- indexes
 
 const INDEX_STATUS: Readonly<Record<MongoIndexPlan['status'], { label: string; className: string }>> = {
-    create: { get label() { return translate("створити") }, className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' },
+    create: { get label() { return translate("create") }, className: 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300' },
     primary: { label: '_id', className: 'border-sky-500/30 text-sky-700 dark:text-sky-300' },
-    skip: { get label() { return translate("пропустити") }, className: 'border-amber-500/30 text-amber-700 dark:text-amber-300' },
-    excluded: { get label() { return translate("вимкнено") }, className: 'text-muted-foreground' },
+    skip: { get label() { return translate("skip") }, className: 'border-amber-500/30 text-amber-700 dark:text-amber-300' },
+    excluded: { get label() { return translate("disabled") }, className: 'text-muted-foreground' },
 }
 
 function IndexTable({ plan, overrides, onTable }: { plan: MongoExportPlan } & PlanEdits) {
@@ -323,21 +323,21 @@ function IndexTable({ plan, overrides, onTable }: { plan: MongoExportPlan } & Pl
     return (
         <div className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold">
-                {translate("Індекси")}
+                {translate("Indexes")}
                 <span className="ml-2 font-normal text-muted-foreground">
-                    {translate("з тегів .CDX і для посилань · буде створено:")} {created}{translate(", не буде:")} {rows.length - created}
+                    {translate("from .CDX tags and references · to create:")} {created}{translate(", excluded:")} {rows.length - created}
                 </span>
             </h3>
             <Table containerClassName="max-h-[50vh]">
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="w-12 text-center">{translate("Вкл.")}</TableHead>
-                        <TableHead>{translate("Статус")}</TableHead>
-                        <TableHead>{translate("Колекція")}</TableHead>
-                        <TableHead>{translate("Звідки")}</TableHead>
-                        <TableHead>{translate("Вираз FoxPro")}</TableHead>
-                        <TableHead>{translate("Індекс MongoDB")}</TableHead>
-                        <TableHead>{translate("Примітка")}</TableHead>
+                        <TableHead className="w-12 text-center">{translate("On")}</TableHead>
+                        <TableHead>{translate("Status")}</TableHead>
+                        <TableHead>{translate("Collection")}</TableHead>
+                        <TableHead>{translate("Origin")}</TableHead>
+                        <TableHead>{translate("FoxPro expression")}</TableHead>
+                        <TableHead>{translate("MongoDB index")}</TableHead>
+                        <TableHead>{translate("Note")}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -353,20 +353,20 @@ function IndexTable({ plan, overrides, onTable }: { plan: MongoExportPlan } & Pl
                                         className="size-3.5 cursor-pointer accent-primary align-middle disabled:cursor-default"
                                         checked={ix.status === 'create' || ix.status === 'primary'}
                                         disabled={!switchable}
-                                        aria-label={translate("Створити індекс {0} у {1}", [tag ?? ix.name, c.collection])}
+                                        aria-label={translate("Create index {0} in {1}", [tag ?? ix.name, c.collection])}
                                         onChange={(e) => tag !== null && toggle(c.fileName, tag, e.target.checked)}
                                     />
                                 </TableCell>
                                 <TableCell><Badge variant="outline" className={status.className}>{status.label}</Badge></TableCell>
                                 <TableCell>{c.collection}</TableCell>
-                                <TableCell className="font-medium">{tag ? translate("тег {0}", [tag]) : translate("посилання")}</TableCell>
+                                <TableCell className="font-medium">{tag ? translate("tag {0}", [tag]) : translate("reference")}</TableCell>
                                 <TableCell className="font-mono text-xs">
                                     {ix.expression ?? '—'}
                                     {ix.filter && <span className="text-muted-foreground"> FOR {ix.filter}</span>}
                                 </TableCell>
                                 <TableCell>
                                     {ix.status === 'create'
-                                        ? <>{ix.name} <span className="text-muted-foreground">({ix.keys.join(', ')}){ix.unique && translate(" унікальний")}</span></>
+                                        ? <>{ix.name} <span className="text-muted-foreground">({ix.keys.join(', ')}){ix.unique && translate(" unique")}</span></>
                                         : ix.keys.length > 0 ? <span className="text-muted-foreground">({ix.keys.join(', ')})</span> : '—'}
                                 </TableCell>
                                 <TableCell className="whitespace-normal text-muted-foreground">{ix.note ?? ''}</TableCell>

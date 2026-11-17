@@ -8,8 +8,8 @@ export function errorMessage(err: unknown): string {
     const msg = body?.message;
     if (Array.isArray(msg)) return msg.join('; ');
     if (typeof msg === 'string') return msg;
-    return translate("Запит не вдався ({0}).", [err.status]);
+    return translate("Request failed ({0}).", [err.status]);
   }
   if (err instanceof Error) return err.message;
-  return translate("Щось пішло не так.");
+  return translate("Something went wrong.");
 }

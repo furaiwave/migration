@@ -1,49 +1,50 @@
 # Docker / VPS
 
-Приложение подготовлено к запуску одним экземпляром на Linux VPS: React, NestJS и Rust входят в один образ, Caddy обслуживает HTTPS. Это общий рабочий экземпляр для владельца или доверенной команды: одна учётная запись, общие сессии и доступ к сети сервера. Разделения данных по пользователям и многопользовательского SaaS пока нет.
+The application can run as one instance on a Linux VPS. React, NestJS and Rust are packaged in one image, with Caddy providing HTTPS. This is a shared workspace for an owner or trusted team: one account, shared sessions and access to the server's network. Per-user data isolation and a multi-tenant SaaS model are not implemented.
 
-## Первый запуск
+## First launch
 
-Нужны Docker Engine с Compose v2, домен с DNS A/AAAA на VPS и открытые входящие TCP 80/443. Если IPv6 не настроен, не создавайте AAAA-запись. Для сборки Rust желательно иметь от 4 ГБ RAM; самому приложению Compose задаёт предел 2 ГБ. На небольшом VPS собирайте образ на отдельной машине или в CI.
+You need Docker Engine with Compose v2, a domain whose DNS A/AAAA records point to the VPS, and inbound TCP ports 80/443. Do not create an AAAA record unless IPv6 is configured. At least 4 GB RAM is recommended for compiling Rust; Compose limits the running application to 2 GB. On a small VPS, build the image on another machine or in CI.
 
-Из корня репозитория на VPS:
+From the repository root on the VPS:
 
 ~~~sh
 cp .env.example .env
-# Укажите настоящий APP_DOMAIN и имя APP_USER в .env.
+# Set the actual APP_DOMAIN and APP_USER in .env.
 mkdir -p secrets
 chmod 700 secrets
 docker run --rm node:24-bookworm-slim node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))' > secrets/app_password.txt
-# Файл bind-монтируется в контейнер с пользователем node (UID 1000).
-# Закрытый каталог secrets защищает его на хосте; файл должен читаться UID 1000.
+# The file is bind-mounted into a container running as node (UID 1000).
+# The private secrets directory protects it on the host; UID 1000 must be able to read the file.
 chmod 644 secrets/app_password.txt
+
 docker compose up -d --build
 docker compose ps
 docker compose logs --tail=100 app proxy
 ~~~
 
-Откройте https://ваш-домен. Браузер запросит APP_USER и пароль из secrets/app_password.txt (его можно посмотреть локально через cat). Не используйте пароль от СУБД в качестве пароля приложения. Пароль не записывается в образ или .env, передаётся как Compose secret и не попадает в дочерний процесс через аргументы. Файлы .env и secrets/ исключены из Git и Docker build context.
+Open https://your-domain. The browser asks for APP_USER and the password in secrets/app_password.txt, which you can inspect locally with cat. Do not use a database password as the application password. The password is not stored in the image or .env; it is passed as a Compose secret and not exposed in child-process arguments. .env and secrets/ are excluded from Git and the Docker build context.
 
-Caddy автоматически получает и обновляет сертификат. API не публикуется на порту хоста, доступ идёт через HTTPS. Не добавляйте публичный проброс порта 3000. Встроенный вход использует HTTP Basic, поэтому внешний доступ должен идти через HTTPS. Можно дополнительно ограничить доступ к VPS своей VPN/сетевыми правилами.
+Caddy obtains and renews certificates automatically. The API is not published on a host port; access goes through HTTPS. Do not expose port 3000 publicly. Built-in authentication uses HTTP Basic, so external access must use HTTPS. You can further restrict VPS access with a VPN or network rules.
 
-## Подключения к СУБД
+## Database connections
 
-Rust запускается в контейнере. Поиск видит процессы и порты этого контейнера, а не компьютер пользователя и не соседние контейнеры. localhost / 127.0.0.1 в форме означает сам контейнер приложения. Для базы в другом контейнере укажите DNS-имя её сервиса в общей Docker-сети; для базы на другом сервере — доступный из контейнера адрес. Редактировать адрес можно в форме импорта после загрузки DBF.
+Rust runs inside the container. Discovery sees processes and ports in that container, rather than on the user's computer or in neighboring containers. localhost / 127.0.0.1 in a connection form refers to the application container. For a database in another container, use its service DNS name on a shared Docker network. For a database on another server, use an address reachable from the application container. You can edit the address in the import form after source upload.
 
-Локальная база компьютера доступна облаку только через настроенную частную сеть/VPN и правила доступа СУБД. Подключение к MongoDB также идёт с VPS. Не открывайте порт базы всему интернету ради импорта. Режим поиска СУБД и проверка пароля — отдельные действия.
+A database on the user's computer is reachable from the cloud only through a configured private network/VPN and database access rules. MongoDB connections also originate from the VPS. Do not expose a database port to the whole internet for an import. Server discovery and credential checking are separate operations.
 
-## Данные и перезапуск
+## Data and restarts
 
-- Том sessions хранит DBF, memo, CDX и описание сессий; данные не исчезают при пересоздании контейнера. Срок хранения неактивной сессии — сутки, очистка выполняется при запуске и новых загрузках.
-- Пароли СУБД остаются в памяти формы/выполняемой задачи и не записываются в описание сессии. Сертификаты Caddy хранятся в caddy_data; caddy_config содержит его рабочую конфигурацию.
-- Состояния импортов хранятся в памяти сервера. Не обновляйте и не перезапускайте приложение во время переноса. После прерванного импорта проверьте базу перед повторным запуском; MySQL/MongoDB могут содержать частичные изменения. Новый экземпляр не продолжит задачу автоматически.
-- Запускайте одну реплику приложения. Несколько процессов не синхронизируют задачи и изменения сессий.
-- Общий размер одного HTTP-запроса загрузки ограничен Caddy до 128 МБ (включая multipart), один файл — до 100 МБ. Большие наборы разделяйте на несколько сессий. Распакованные таблицы могут занимать больше памяти, чем исходные файлы.
-- Консоль операций хранит последние 2000 событий в браузере, экспортирует .log. Это не централизованный аудит. Серверные логи доступны через docker compose logs и ротируются (3 файла по 10 МБ).
+- The sessions volume stores table files, memo files, CDX indexes and session metadata. Data survives container recreation. Inactive sessions are retained for one day; cleanup runs on startup and new uploads.
+- Database passwords stay in form/running-task memory and are not saved in session metadata. Caddy certificates are stored in caddy_data; caddy_config holds its working configuration.
+- Import states stay in server memory. Do not update or restart the application during a transfer. After an interrupted import, inspect the destination before retrying: MySQL/MongoDB may contain partial changes. A new instance does not resume the task automatically.
+- Run one application replica. Multiple processes do not synchronize jobs or session changes.
+- Caddy limits each upload HTTP request to 128 MB including multipart overhead; a single file is limited to 100 MB. Split larger datasets into multiple sessions. Decoded tables may require more memory than their source files.
+- The activity console keeps the last 2000 browser events and exports .log files. It is not a centralized audit log. Server logs are available through docker compose logs and rotate across three 10 MB files.
 
-Обновление: дождитесь окончания импортов, выполните docker compose build и docker compose up -d. Сессии сохранятся. Не используйте docker compose down -v, если хотите сохранить данные: этот ключ удаляет тома.
+To update, wait for imports to finish, then run docker compose build and docker compose up -d. Sessions are preserved. Do not use docker compose down -v when you want to retain data: -v deletes volumes.
 
-Резервная копия сессий (сначала завершите импорты):
+Back up sessions after completing imports:
 
 ~~~sh
 docker compose stop app
@@ -51,31 +52,31 @@ docker compose run --rm --no-deps app tar -C /data/sessions -czf - . > sessions-
 docker compose start app
 ~~~
 
-Архив содержит исходные данные DBF — храните его с ограниченным доступом. Проверяйте восстановление резервных копий на отдельном экземпляре.
+The archive contains source source data. Restrict access to it and verify restore procedures on a separate instance.
 
-## Конфигурация web-процесса
+## Web process configuration
 
-| Переменная | Назначение |
-|---|---|
-| PUBLIC_ORIGIN | Единственный адрес интерфейса, например https://migration.example.com; Compose получает его из APP_DOMAIN |
-| APP_USER | Логин общего рабочего экземпляра |
-| APP_PASSWORD_FILE | Путь к файлу с паролем (в Compose /run/secrets/app_password) |
-| APP_PASSWORD | Альтернатива secret-файлу для внешнего менеджера секретов; одновременно с APP_PASSWORD_FILE запрещена |
-| HOST / PORT | Адрес прослушивания; образ использует 0.0.0.0:3000 |
-| DBF_CLIENT_DIR | Абсолютный путь к собранному интерфейсу |
-| DBF_SESSION_DIR | Абсолютный путь к каталогу сессий с правом записи |
-| DBF_CONNECTOR_BIN | Абсолютный путь к исполняемому Rust-модулю |
+| Variable | Purpose |
+| --- | --- |
+| PUBLIC_ORIGIN | The sole interface origin, e.g. https://migration.example.com; Compose derives it from APP_DOMAIN |
+| APP_USER | Login for the shared workspace |
+| APP_PASSWORD_FILE | Password file path; /run/secrets/app_password in Compose |
+| APP_PASSWORD | Alternative to a secret file when using an external secrets manager; cannot be combined with APP_PASSWORD_FILE |
+| HOST / PORT | Listening address; the image uses 0.0.0.0:3000 |
+| DBF_CLIENT_DIR | Absolute path to the built interface |
+| DBF_SESSION_DIR | Absolute path to a writable session directory |
+| DBF_CONNECTOR_BIN | Absolute path to the compiled Rust executable |
 
-Web-процесс отказывается стартовать без учётных данных, корректного origin, интерфейса, Rust-модуля или доступного каталога сессий. Пароль должен содержать 16–8192 байта UTF-8 без управляющих символов. GET /healthz возвращает только статус процесса без авторизации; это не проверка доступности ваших баз данных.
+The web process refuses to start without credentials, a valid origin, the interface, the Rust module or an accessible session directory. The password must contain 16–8192 UTF-8 bytes with no control characters. GET /healthz returns only process status without authentication; it does not check database availability.
 
-Локальный запуск web-режима без Docker: соберите native/db-connector, соберите client с VITE_API_BASE=/ и VITE_DEPLOYMENT=cloud, затем migration-gateway. Задайте переменные выше и выполните npm run start:web в migration-gateway. HTTP допустим для проверки на loopback; снаружи используйте HTTPS-прокси.
+To run web mode locally without Docker, build native/db-connector, build client with VITE_API_BASE=/ and VITE_DEPLOYMENT=cloud, then build migration-gateway. Set the variables above and run npm run start:web in migration-gateway. HTTP is suitable for loopback testing; use an HTTPS proxy for external access.
 
-## Проверки
+## Verification
 
-- npm test -- --runInBand в migration-gateway — тесты API, конфигурации, авторизации и безопасной раздачи файлов.
-- npm run test:web там же после сборки клиента, сервера и Rust — реальный запуск, вход, TCP-диагностика, загрузка DBF и восстановление после перезапуска; проверяются также повреждённые сессии и пути Windows.
-- .github/workflows/cloud.yml — Linux-сборка Docker, тесты Rust, проверка Compose/Caddy и smoke-тест образа под непривилегированным пользователем с read-only filesystem. Workflow ничего не публикует и не развёртывает.
+- npm test -- --runInBand in migration-gateway checks the API, configuration, authentication and safe file serving.
+- npm run test:web in that directory, after building the client, server and Rust module, checks actual startup, authentication, TCP diagnostics, source upload and recovery after restart, including corrupted sessions and Windows paths.
+- .github/workflows/cloud.yml builds the Linux Docker image, runs Rust tests, checks Compose/Caddy configuration and smoke-tests the image as an unprivileged user with a read-only filesystem. The workflow does not publish or deploy anything.
 
-Docker отсутствовал в текущей среде разработки, поэтому локально проверен web-процесс, а сборку Linux-образа и Caddy необходимо подтвердить запуском workflow Cloud checks или docker compose build на VPS.
+Docker was not available in the development environment. The web process was checked locally; verify the Linux image build and Caddy by running the Cloud checks workflow or docker compose build on the VPS.
 
-Основа конфигурации: [Docker multi-stage builds](https://docs.docker.com/build/building/multi-stage/), [Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/), [Caddy HTTPS](https://caddyserver.com/docs/automatic-https).
+Configuration references: [Docker multi-stage builds](https://docs.docker.com/build/building/multi-stage/), [Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/), [Caddy HTTPS](https://caddyserver.com/docs/automatic-https).

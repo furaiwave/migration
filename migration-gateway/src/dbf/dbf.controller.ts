@@ -52,7 +52,7 @@ class FileEncodingDto {
 
 class MysqlExportDto {
     @IsOptional()
-    @Matches(/^[A-Za-z0-9_]{0,64}$/, { message: 'Назва бази даних: лише латинські літери, цифри та _, до 64 символів' })
+    @Matches(/^[A-Za-z0-9_]{0,64}$/, { message: "Database name: Latin letters, digits and underscores only, up to 64 characters" })
     database?: string
     @IsOptional() @IsBoolean() includeData?: boolean
     @IsOptional() @IsBoolean() foreignKeys?: boolean
@@ -82,7 +82,7 @@ class MysqlImportDto extends MysqlExportDto {
 
 // mongodb:// or mongodb+srv:// — the driver checks the rest and says what is wrong.
 const MONGO_URI = /^mongodb(\+srv)?:\/\/\S+$/
-const MONGO_URI_MESSAGE = 'Рядок підключення має починатися з mongodb:// або mongodb+srv://'
+const MONGO_URI_MESSAGE = "The connection string must start with mongodb:// or mongodb+srv://"
 
 class MongoConnectionDto {
     @IsString() @Matches(MONGO_URI, { message: MONGO_URI_MESSAGE }) uri!: string
@@ -128,11 +128,11 @@ export class DbfController {
     // Every table may bring an .fpt/.dbt memo file and a .cdx index file along.
     @UseInterceptors(FilesInterceptor('files', MAX_TABLES * 3, {
         storage: memoryStorage(),
-        // Browsers send UTF-8 names; the latin1 default turns "Сотрудники.dbf" into mojibake.
+        // Browsers send UTF-8 names; interpreting them as latin1 corrupts non-ASCII filenames.
         defParamCharset: 'utf8',
         fileFilter: (_req, file, cb) => {
             const ok = /\.(dbf|fpt|dbt|cdx)$/i.test(file.originalname)
-            cb(ok ? null : new BadRequestException(`Це не файл .dbf/.fpt/.dbt/.cdx: ${file.originalname}`), ok)
+            cb(ok ? null : new BadRequestException(`Unsupported table, memo or index file: ${file.originalname}`), ok)
         },
         limits: { fileSize: 100 * 1024 * 1024 }
     }))
@@ -141,7 +141,7 @@ export class DbfController {
         @Body() dto: ParseQueryDto,
     ): ParseMultipleResult {
         if(!files?.length)
-            throw new BadRequestException('Файли не завантажено')
+            throw new BadRequestException("No files were uploaded")
 
         return this.dbfService.parseMultipleFiles(
             files.map(f => ({
@@ -206,7 +206,7 @@ export class DbfController {
     ): { file: DbfFilePreview; graph: DbfRelationshipGraph } {
         const encoding = dto.encoding || null
         if(encoding !== null && !isSupportedEncoding(encoding))
-            throw new BadRequestException(`Непідтримуване кодування: ${encoding}`)
+            throw new BadRequestException(`Unsupported encoding: ${encoding}`)
         const name = toFileName(fileName)
         const session = this.sessionService.setFileEncoding(toSessionId(id), name, encoding)
         return { file: toPreview(name, session.files.get(name)!), graph: this.graphOf(session) }
@@ -227,7 +227,7 @@ export class DbfController {
         const stream = this.mysqlExportService.exportSql(session, this.activeRelationships(session), options)
         return new StreamableFile(stream, {
             type: 'application/sql; charset=utf-8',
-            disposition: `attachment; filename="${options.database ?? 'dbf_export'}.sql"`,
+            disposition: `attachment; filename="${options.database ?? "data_export"}.sql"`,
         })
     }
 
@@ -270,7 +270,7 @@ export class DbfController {
         const stream = this.mongoExportService.exportScript(session, this.activeRelationships(session), options)
         return new StreamableFile(stream, {
             type: 'text/javascript; charset=utf-8',
-            disposition: `attachment; filename="${options.database ?? 'dbf_export'}.js"`,
+            disposition: `attachment; filename="${options.database ?? "data_export"}.js"`,
         })
     }
 

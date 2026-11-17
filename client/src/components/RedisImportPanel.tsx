@@ -52,7 +52,7 @@ export function RedisImportPanel({
 }) {
   const [uri, setUri] = useState("redis://localhost:6379/0");
   const [options, setOptions] = useState<RedisOptions>({
-    prefix: "dbf",
+    prefix: "data",
     writeMode: "new",
     ttlSeconds: 0,
     keepDeleted: false,
@@ -176,15 +176,15 @@ export function RedisImportPanel({
     <section className="flex flex-col gap-4 border p-4">
       <h3 className="text-sm font-semibold">Redis</h3>
       <p className="text-xs text-muted-foreground">
-        {translate("Redis: один запис DBF → один hash.")}
+        {translate("Redis: one source record → one hash.")}
       </p>
       <p className="text-xs text-muted-foreground">
         {translate(
-          "Числа й дати — точний текст; NULL збережено як JSON null, решту значень — як JSON-рядки.",
+          "Numbers and dates stay exact as text; NULL is JSON null, other values are JSON strings.",
         )}
       </p>
       <fieldset className="workspace-fieldset" disabled={!!busy}>
-        <legend>{translate("З’єднання з базою")}</legend>
+        <legend>{translate("Database connection")}</legend>
         <label className="flex flex-col gap-1 text-xs">
           Redis URI (redis:// / rediss://)
           <Input
@@ -201,10 +201,10 @@ export function RedisImportPanel({
         </label>
       </fieldset>
       <fieldset className="workspace-fieldset" disabled={!!busy}>
-        <legend>{translate("Параметри перенесення")}</legend>
+        <legend>{translate("Transfer options")}</legend>
         <div className="workspace-import-options">
           <label className="flex flex-col gap-1 text-xs">
-            {translate("Префікс ключів")}
+            {translate("Key prefix")}
             <Input
               value={options.prefix}
               maxLength={64}
@@ -215,7 +215,7 @@ export function RedisImportPanel({
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            {translate("TTL, секунд (0 — без строку дії)")}
+            {translate("TTL in seconds (0 — no expiry)")}
             <Input
               type="number"
               min={0}
@@ -230,7 +230,7 @@ export function RedisImportPanel({
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            {translate("Режим імпорту")}
+            {translate("Import mode")}
             <select
               className="h-8 border bg-background px-2"
               value={options.writeMode}
@@ -242,10 +242,10 @@ export function RedisImportPanel({
               }
             >
               <option value="new">
-                {translate("Тільки нові ключі (наявні пропускаються)")}
+                {translate("New keys only (skip existing)")}
               </option>
               <option value="update">
-                {translate("Оновлювати поля наявних hashes")}
+                {translate("Update fields in existing hashes")}
               </option>
             </select>
           </label>
@@ -257,13 +257,13 @@ export function RedisImportPanel({
                 setOptions((o) => ({ ...o, keepDeleted: e.target.checked }))
               }
             />
-            {translate("Зберігати видалені записи в <таблиця>_deleted")}
+            {translate("Keep deleted records in <table>_deleted")}
           </label>
         </div>
       </fieldset>
       <p className="text-xs text-amber-600">
         {translate(
-          "Зміни вже записаних ключів не відкочуються. Оновлення зберігає сторонні поля hash; TTL застосовується до всього ключа.",
+          "Written keys are not rolled back. Updates preserve other hash fields; TTL applies to the entire key.",
         )}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -274,10 +274,10 @@ export function RedisImportPanel({
             void test.mutate(uri).catch(() => {});
           }}
         >
-          {translate("Перевірити з'єднання")}
+          {translate("Test connection")}
         </Button>
         <Button disabled={!!busy || !ready} onClick={start}>
-          {translate("Імпорт")} → Redis
+          {translate("Import")} → Redis
         </Button>
       </div>
       {test.state.status === "success" && (
@@ -294,7 +294,7 @@ export function RedisImportPanel({
       )}
       {planRun.isPending && (
         <p className="text-xs text-muted-foreground">
-          {translate("Перевіряю…")}
+          {translate("Checking…")}
         </p>
       )}
       {current && (
@@ -303,9 +303,9 @@ export function RedisImportPanel({
             <table className="w-full text-left text-xs">
               <thead>
                 <tr>
-                  <th>{translate("Файл DBF")}</th>
+                  <th>{translate("Source file")}</th>
                   <th>Redis hash</th>
-                  <th>{translate("Рядків у DBF")}</th>
+                  <th>{translate("Source rows")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -327,7 +327,7 @@ export function RedisImportPanel({
                       {t.keyMode === "record" && (
                         <p className="text-amber-600">
                           {translate(
-                            "Без первинного ключа: ключі залежать від номера запису DBF.",
+                            "No primary key: keys depend on the source record number.",
                           )}
                         </p>
                       )}
@@ -378,7 +378,7 @@ export function RedisImportPanel({
                 onClick={cancel}
                 disabled={cancelling}
               >
-                {cancelling ? translate("Зупиняю…") : translate("Зупинити")}
+                {cancelling ? translate("Stopping…") : translate("Stop")}
               </Button>
             </>
           )}
@@ -386,7 +386,7 @@ export function RedisImportPanel({
           {job.result?.tables.map((t) => (
             <p key={t.table}>
               {t.fileName} → {t.table}:{" "}
-              {translate("Записано: {0}; пропущено: {1}.", [
+              {translate("Written: {0}; skipped: {1}.", [
                 t.importedRows,
                 t.skippedRows,
               ])}
@@ -396,7 +396,7 @@ export function RedisImportPanel({
       )}
       {pollError != null && (
         <p role="alert" className="text-xs text-destructive">
-          {errorMessage(pollError)} {translate("— пробую ще раз…")}
+          {errorMessage(pollError)} {translate("— retrying…")}
         </p>
       )}
     </section>

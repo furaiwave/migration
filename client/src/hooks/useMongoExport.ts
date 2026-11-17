@@ -18,7 +18,7 @@ async function fetchPlan(input: MysqlExportInput): Promise<MongoExportPlan> {
 /** Downloads the mongosh script and hands it to the browser as a file; resolves with the file name. */
 async function downloadScript(input: MysqlExportInput): Promise<string> {
     const blob = await apiRequest('POST /dbf/session/:id/mongo/export', { params: { id: input.sessionId }, body: requestOptions(input) })
-    const fileName = `${input.options.database || 'dbf_export'}.js`
+    const fileName = `${input.options.database || "data_export"}.js`
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

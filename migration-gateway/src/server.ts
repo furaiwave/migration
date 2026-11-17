@@ -71,7 +71,7 @@ export async function startServer(options: ServerOptions) {
       res.setHeader('Access-Control-Allow-Origin', origin)
       res.status(403).json({
         statusCode: 403,
-        message: `Бекенд не приймає запити зі сторінки ${origin}. Відкрийте застосунок за адресою ${origins[0]} або додайте цю адресу в CLIENT_ORIGINS і перезапустіть бекенд.`,
+        message: `The backend does not accept requests from ${origin}. Open the application at ${origins[0]} or add this address to CLIENT_ORIGINS and restart the backend.`,
       })
       return
     }

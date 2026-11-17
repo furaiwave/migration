@@ -1,6 +1,13 @@
 // Electron main process: starts the API + client server in this process and shows it in a window.
 const path = require('node:path')
+const fs = require('node:fs')
 const { app, BrowserWindow, Menu, dialog, shell } = require('electron')
+
+const { productName } = require('./package.json')
+// Preserve the existing desktop profile when changing the public product name.
+const profilePath = path.join(app.getPath('appData'), 'dbf inspector')
+fs.mkdirSync(profilePath, { recursive: true })
+app.setPath('userData', profilePath)
 
 const PREFERRED_PORT = 47300
 
@@ -30,7 +37,7 @@ if (!app.requestSingleInstanceLock()) {
             height: 920,
             minWidth: 900,
             minHeight: 600,
-            title: 'dbf inspector',
+            title: productName,
             icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
             show: false,
             autoHideMenuBar: true,
@@ -71,7 +78,7 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady()
         .then(start)
         .catch((err) => {
-            dialog.showErrorBox('Не вдалося запустити dbf inspector', err instanceof Error ? err.stack ?? err.message : String(err))
+            dialog.showErrorBox("Could not start Data Migrator", err instanceof Error ? err.stack ?? err.message : String(err))
             app.exit(1)
         })
 

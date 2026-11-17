@@ -31,7 +31,7 @@ export function ActivityConsole() {
     <section
       className="workspace-console"
       data-open={open}
-      aria-label={translate("Консоль міграції")}
+      aria-label={translate("Migration console")}
     >
       <div className="workspace-console-bar">
         <button
@@ -41,11 +41,11 @@ export function ActivityConsole() {
           aria-expanded={open}
           aria-controls="migration-console-output"
           aria-label={
-            open ? translate("Згорнути журнал") : translate("Розгорнути журнал")
+            open ? translate("Collapse log") : translate("Expand log")
           }
         >
           <Terminal size={15} />
-          <span>{translate("Консоль міграції")}</span>
+          <span>{translate("Migration console")}</span>
           <span className="workspace-log-count">{entries.length}</span>
           {open ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
         </button>
@@ -67,7 +67,7 @@ export function ActivityConsole() {
               </span>
             </>
           ) : (
-            translate("Події з’являться після початку роботи.")
+            translate("Activity will appear when you start working.")
           )}
         </p>
         <div className="workspace-console-counters">
@@ -90,7 +90,7 @@ export function ActivityConsole() {
                   aria-pressed={filter === level}
                   onClick={() => setFilter(level)}
                 >
-                  {level === "ALL" ? translate("Усі події") : level}
+                  {level === "ALL" ? translate("All events") : level}
                 </button>
               ),
             )}
@@ -102,7 +102,7 @@ export function ActivityConsole() {
                 checked={follow}
                 onChange={(event) => setFollow(event.target.checked)}
               />
-              {translate("Автопрокрутка")}
+              {translate("Auto-scroll")}
             </label>
             <Button
               size="sm"
@@ -110,7 +110,7 @@ export function ActivityConsole() {
               disabled={!entries.length}
               onClick={downloadLog}
             >
-              {translate("Завантажити .log")}
+              {translate("Download .log")}
             </Button>
             <Button
               size="sm"
@@ -118,7 +118,7 @@ export function ActivityConsole() {
               disabled={!entries.length}
               onClick={clearLog}
             >
-              {translate("Очистити журнал")}
+              {translate("Clear log")}
             </Button>
           </div>
         </div>
@@ -143,8 +143,8 @@ export function ActivityConsole() {
           ) : (
             <p className="text-zinc-500">
               {entries.length
-                ? translate("Немає подій для цього фільтра.")
-                : translate("Події з’являться після початку роботи.")}
+                ? translate("No events match this filter.")
+                : translate("Activity will appear when you start working.")}
             </p>
           )}
         </div>

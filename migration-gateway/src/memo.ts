@@ -35,7 +35,7 @@ export function memoFormatOf(fileName: string): MemoFormat | null {
 }
 
 export function openMemo(buffer: Buffer, format: MemoFormat): MemoReader {
-    if (buffer.length < 512) throw new Error(`Memo-файл замалий: ${buffer.length} ${plural(buffer.length, 'байт', 'байти', 'байтів')}`)
+    if (buffer.length < 512) throw new Error(`Memo file is too small: ${buffer.length} ${plural(buffer.length, "byte", "bytes")}`)
     return format === 'fpt' ? openFpt(buffer) : openDbt(buffer)
 }
 

@@ -10,17 +10,17 @@ const diagnose = (endpoint: { host: string; port: number }) =>
 function statusLabel(status: NativeDiagnostic["status"]): string {
   switch (status) {
     case "reachable":
-      return translate("Порт відкрито");
+      return translate("Port open");
     case "refused":
-      return translate("Сервер відхилив TCP-з’єднання");
+      return translate("TCP connection refused");
     case "dnsError":
-      return translate("Не вдалося визначити IP-адресу");
+      return translate("Could not resolve the IP address");
     case "dnsTimeout":
-      return translate("Час очікування DNS вичерпано");
+      return translate("DNS lookup timed out");
     case "timeout":
-      return translate("Час очікування TCP вичерпано");
+      return translate("TCP connection timed out");
     default:
-      return translate("Сервер недоступний через мережу");
+      return translate("Server is unreachable over the network");
   }
 }
 export function EndpointDiagnostics({
@@ -57,8 +57,8 @@ export function EndpointDiagnostics({
         onClick={check}
       >
         {run.isPending
-          ? translate("Перевіряю…")
-          : translate("Діагностика мережі")}
+          ? translate("Checking…")
+          : translate("Network diagnostics")}
       </Button>
       {run.state.status === "success" && (
         <p
@@ -70,10 +70,10 @@ export function EndpointDiagnostics({
           }
         >
           {statusLabel(run.state.data.status)} ·{" "}
-          {translate("Час перевірки: {0} мс", [run.state.data.elapsedMs])}
+          {translate("Check time: {0} ms", [run.state.data.elapsedMs])}
           {run.state.data.resolvedAddresses.length > 0
             ? " · " +
-              translate("Адреси: {0}", [
+              translate("Addresses: {0}", [
                 run.state.data.resolvedAddresses.join(", "),
               ])
             : ""}

@@ -65,11 +65,11 @@ export function NativeSchemaInspector({
   return (
     <section
       className="flex flex-col gap-2 border p-3"
-      aria-label={translate("Структура бази призначення")}
+      aria-label={translate("Destination database structure")}
     >
       <div className="flex flex-wrap items-center gap-2">
         <h4 className="text-xs font-semibold">
-          {translate("Структура бази призначення")}
+          {translate("Destination database structure")}
         </h4>
         <Button
           size="sm"
@@ -78,18 +78,18 @@ export function NativeSchemaInspector({
           onClick={load}
         >
           {run.isPending
-            ? translate("Перевіряю…")
-            : translate("Переглянути структуру")}
+            ? translate("Checking…")
+            : translate("View structure")}
         </Button>
         {report && (
           <Button size="sm" variant="outline" onClick={download}>
-            {translate("Завантажити структуру .json")}
+            {translate("Download structure .json")}
           </Button>
         )}
       </div>
       <p className="text-xs text-muted-foreground">
         {translate(
-          "Читає лише метадані. Рядки таблиць і документи не завантажуються.",
+          "Reads metadata only. Table rows and documents are not loaded.",
         )}
       </p>
       {current && run.state.status === "error" && (
@@ -101,18 +101,18 @@ export function NativeSchemaInspector({
         <div className="flex flex-col gap-2 text-xs" role="status">
           <p>
             {report.database} ·{" "}
-            {translate("Об’єктів: {0}", [report.objects.length])} ·{" "}
-            {translate("Час перевірки: {0} мс", [report.elapsedMs])}
+            {translate("Objects: {0}", [report.objects.length])} ·{" "}
+            {translate("Check time: {0} ms", [report.elapsedMs])}
           </p>
           {report.truncated && (
             <p className="text-amber-600">
               {translate(
-                "Структуру показано частково через обмеження розміру звіту.",
+                "The structure is partial because of the report size limit.",
               )}
             </p>
           )}
           {!report.objects.length && (
-            <p>{translate("Доступних об’єктів не знайдено.")}</p>
+            <p>{translate("No accessible objects found.")}</p>
           )}
           <div className="max-h-80 overflow-auto">
             {report.objects.map((object) => (
@@ -127,8 +127,8 @@ export function NativeSchemaInspector({
                   <table className="w-full text-left">
                     <thead>
                       <tr>
-                        <th>{translate("Колонка")}</th>
-                        <th>{translate("Тип")}</th>
+                        <th>{translate("Column (mapping)")}</th>
+                        <th>{translate("Type")}</th>
                         <th>NULL</th>
                       </tr>
                     </thead>

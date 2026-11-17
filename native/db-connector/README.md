@@ -15,7 +15,7 @@ Commands:
     {"command":"discover"}
     {"command":"test","connection":{"engine":"postgres","host":"localhost","port":5432,"user":"postgres","password":"...","database":"legacy","encrypt":true,"trustServerCertificate":false}}
 
-Engines: mysql (including MariaDB), mongo, postgres, mssql. MongoDB checks take a uri field. Connection checks authenticate, read the server version and list accessible databases where permissions allow; they create no databases or tables and disconnect afterward. Import execution remains in the existing migration services.
+Engines: mysql (including MariaDB), mongo, postgres, mssql, redis. MongoDB checks take a uri field. Connection checks authenticate, read the server version and list accessible databases where permissions allow; they create no databases or tables and disconnect afterward. Import execution remains in the existing migration services.
 
 On Windows discovery reads service definitions, SQL Server instance/TCP configuration from the registry, and DB server process command lines. It correlates numeric listening ports to process IDs and reads the referenced local configuration file for custom ports. UNC configuration paths are ignored. It probes only loopback IPv4/IPv6 endpoints; it does not search the LAN, guess passwords, start services or modify the registry. Default ports are shown only after a matching protocol response. Installed services can be shown as unavailable; an open port is distinct from a successful authenticated connection. Config includes and Unix socket-only/LocalDB named-pipe instances are not resolved automatically; manual TCP configuration remains available.
 
@@ -23,4 +23,4 @@ Drivers: [mysql_async](https://docs.rs/mysql_async/0.36.2/mysql_async/), [tokio-
 
 The inspect command reads database structure without reading table rows or MongoDB documents. Metadata reports can be downloaded from each import form. Limits and examples: [RUST_FEATURES.md](../../RUST_FEATURES.md).
 
-Redis: redis:// / rediss:// URI, ACL, индекс базы, PING и необязательный INFO server. Обнаружение redis-server/valkey-server и портов 6379/6380; каталог сообщает выбранный индекс. Структура SQL для Redis не поддерживается. Формат импорта: [REDIS_IMPORT.md](../../REDIS_IMPORT.md).
+Redis supports redis:// and rediss:// URIs, ACL authentication, database indexes, PING and optional INFO server. Discovery includes redis-server/valkey-server and ports 6379/6380; the catalog reports the selected database index. SQL structure inspection is not supported for Redis. See [REDIS_IMPORT.md](../../REDIS_IMPORT.md) for the import format.

@@ -51,16 +51,16 @@ export function cdxFileOf(fileName: string): boolean {
 /** Tags in the order FoxPro lists them (alphabetical). Throws on a file that is not a compact CDX. */
 export function readCdxTags(buffer: Buffer, decoder: TextDecoderLike): CdxTag[] {
     if (buffer.length < TAG_HEADER || buffer.length % PAGE !== 0)
-        throw new Error(`це не файл .CDX (${buffer.length} ${plural(buffer.length, 'байт', 'байти', 'байтів')})`)
+        throw new Error(`not a .CDX file (${buffer.length} ${plural(buffer.length, "byte", "bytes")})`)
     if ((buffer[14] & OPT_COMPACT) === 0)
-        throw new Error('підтримуються лише компактні файли .CDX (FoxPro 2.x / Visual FoxPro)')
+        throw new Error("only compact .CDX files are supported (FoxPro 2.x / Visual FoxPro)")
 
     const keyLength = buffer.readUInt16LE(12)
     const entries = readTree(buffer, buffer.readInt32LE(0), keyLength)
 
     return entries.map(({ key, recno: offset }) => {
         if (offset < 0 || offset + TAG_HEADER > buffer.length)
-            throw new Error(`тег ${key} вказує за межі файлу`)
+            throw new Error(`tag ${key} points outside the file`)
         const options = buffer[offset + 14]
         const forLength = buffer.readUInt16LE(offset + 506)
         const exprLength = buffer.readUInt16LE(offset + 510)
@@ -93,7 +93,7 @@ function readTree(buffer: Buffer, root: number, keyLength: number): TreeEntry[] 
     const seen = new Set<number>()
     const visit = (page: number) => {
         if (page < 0 || page + PAGE > buffer.length || page % PAGE !== 0 || seen.has(page) || seen.size >= MAX_NODES)
-            throw new Error('пошкоджене дерево індексу')
+            throw new Error("corrupted index tree")
         seen.add(page)
         const node = buffer.subarray(page, page + PAGE)
         const count = node.readUInt16LE(2)
@@ -104,7 +104,7 @@ function readTree(buffer: Buffer, root: number, keyLength: number): TreeEntry[] 
         const entry = keyLength + 8
         for (let i = 0; i < count; i++) {
             const at = 12 + i * entry
-            if (at + entry > PAGE) throw new Error('пошкоджений вузол індексу')
+            if (at + entry > PAGE) throw new Error("corrupted index node")
             visit(node.readUInt32BE(at + keyLength + 4))
         }
     }
@@ -119,7 +119,7 @@ function readLeaf(node: Buffer, count: number, keyLength: number): TreeEntry[] {
     const recnoBits = BigInt(node[20])
     const dupBits = BigInt(node[21])
     const entryBytes = node[23]
-    if (entryBytes === 0 || 24 + count * entryBytes > PAGE) throw new Error('пошкоджений лист індексу')
+    if (entryBytes === 0 || 24 + count * entryBytes > PAGE) throw new Error("corrupted index leaf")
 
     const out: TreeEntry[] = []
     let keyEnd = PAGE
@@ -131,7 +131,7 @@ function readLeaf(node: Buffer, count: number, keyLength: number): TreeEntry[] {
         const trail = Number((packed >> (recnoBits + dupBits)) & trailMask)
         const fresh = keyLength - dup - trail
         keyEnd -= fresh
-        if (fresh < 0 || keyEnd < 24 + count * entryBytes) throw new Error('пошкоджений лист індексу')
+        if (fresh < 0 || keyEnd < 24 + count * entryBytes) throw new Error("corrupted index leaf")
         const key = Buffer.concat([previous.subarray(0, dup), node.subarray(keyEnd, keyEnd + fresh), Buffer.alloc(trail, 0x20)])
         previous = key
         out.push({ key: key.toString('latin1').replace(/[\0 ]+$/, ''), recno: Number(packed & recnoMask) })
@@ -189,14 +189,14 @@ function tokenize(expression: string): Token[] {
         const close = c === '"' ? '"' : c === "'" ? "'" : c === '[' ? ']' : null
         if (close) {
             const end = s.indexOf(close, i + 1)
-            if (end === -1) throw new Error('незакритий рядок')
+            if (end === -1) throw new Error("unterminated string")
             tokens.push({ t: 'string' })
             i = end + 1
             continue
         }
         if (s.startsWith('->', i)) { tokens.push({ t: 'op', v: '.' }); i += 2; continue }
         if ('()+-,.'.includes(c)) { tokens.push({ t: 'op', v: c }); i++; continue }
-        throw new Error(`"${c}" не підтримується`)
+        throw new Error(`"${c}" is not supported`)
     }
     return tokens
 }
@@ -214,7 +214,7 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
     const take = () => tokens[pos++]
     const expect = (op: string) => {
         const tok = take()
-        if (tok?.t !== 'op' || tok.v !== op) throw new Error(`очікувалося "${op}"`)
+        if (tok?.t !== 'op' || tok.v !== op) throw new Error(`expected "${op}"`)
     }
 
     // Literal arguments such as the 20 in LEFT(NAME, 20).
@@ -227,10 +227,10 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
 
     const term = (): IndexPart[] => {
         const tok = take()
-        if (!tok) throw new Error('вираз обривається')
+        if (!tok) throw new Error("incomplete expression")
         if (tok.t === 'number' || tok.t === 'string') return []
         if (tok.t === 'op') {
-            if (tok.v !== '(') throw new Error(`неочікуване "${tok.v}"`)
+            if (tok.v !== '(') throw new Error(`unexpected "${tok.v}"`)
             const inner = parse()
             expect(')')
             return inner
@@ -239,7 +239,7 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
         if (next?.t === 'op' && next.v === '(') {
             pos++
             const fn = functionName(tok.v)
-            if (!fn) throw new Error(`${tok.v.toUpperCase()}() не має відповідника в MySQL`)
+            if (!fn) throw new Error(`${tok.v.toUpperCase()}() has no MySQL equivalent`)
             if (fn === 'DELETED') {
                 expect(')')
                 return []
@@ -253,7 +253,7 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
             expect(')')
             if ((fn === 'LEFT' || fn === 'SUBSTR') && first.length === 1) {
                 const [start, length] = fn === 'LEFT' ? [1, extra[0]] : [extra[0], extra[1]]
-                if (start !== 1) throw new Error(`${fn}() із середини поля не має відповідника в MySQL`)
+                if (start !== 1) throw new Error(`${fn}() starting in the middle of a field has no MySQL equivalent`)
                 return length ? [{ field: first[0].field, prefix: length }] : first
             }
             return first
@@ -262,7 +262,7 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
         if (next?.t === 'op' && next.v === '.') {
             pos++
             const field = take()
-            if (field?.t !== 'name') throw new Error('після псевдоніма таблиці очікувалася назва поля')
+            if (field?.t !== 'name') throw new Error("expected a field name after the table alias")
             return [{ field: resolveField(field.v) }]
         }
         return [{ field: resolveField(tok.v) }]
@@ -272,7 +272,7 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
         // Tables of a Visual FoxPro database keep long names in the .DBC; the .DBF header (and so
         // this table) only has their first 10 letters, while index expressions use the long name.
         const field = fields.get(name.toUpperCase()) ?? (name.length > 10 ? fields.get(name.slice(0, 10).toUpperCase()) : undefined)
-        if (!field) throw new Error(`${name} не є полем таблиці`)
+        if (!field) throw new Error(`${name} is not a table field`)
         return field
     }
 
@@ -287,7 +287,7 @@ export function indexParts(expression: string, fieldNames: readonly string[]): I
     }
 
     const parts = parse()
-    if (pos < tokens.length) throw new Error('зайвий текст після виразу')
+    if (pos < tokens.length) throw new Error("unexpected text after the expression")
     // A field repeated in one key adds nothing to a MySQL index.
     const seen = new Set<string>()
     return parts.filter(p => !seen.has(p.field) && seen.add(p.field))

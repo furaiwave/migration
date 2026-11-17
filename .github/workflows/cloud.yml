@@ -44,7 +44,7 @@ jobs:
           context: .
           load: true
           push: false
-          tags: dbf-inspector:check
+          tags: data-migrator:check
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Validate deployment configuration
@@ -62,11 +62,11 @@ jobs:
             --security-opt no-new-privileges:true \
             -e WEB_TEST_ROOT=/app -e WEB_TEST_CLIENT=/app/client \
             -v "$PWD/migration-gateway/scripts/smoke-web.cjs:/checks/smoke-web.cjs:ro" \
-            dbf-inspector:check node /checks/smoke-web.cjs
+            data-migrator:check node /checks/smoke-web.cjs
 
       - name: Test Redis import against a real server
         run: |
           docker run --rm --network host --read-only --tmpfs /tmp:size=64m,mode=1777 \
             -e REDIS_TEST_ROOT=/app -e REDIS_TEST_URL=redis://127.0.0.1:6379/15 \
             -v "$PWD/migration-gateway/scripts/smoke-redis.cjs:/checks/smoke-redis.cjs:ro" \
-            dbf-inspector:check node /checks/smoke-redis.cjs
+            data-migrator:check node /checks/smoke-redis.cjs

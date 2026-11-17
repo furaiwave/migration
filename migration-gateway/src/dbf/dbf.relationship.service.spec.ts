@@ -42,7 +42,7 @@ function files(...entries: readonly (readonly [string, DbfParseResult])[]): Pars
 describe('DbfRelationshipService', () => {
     const service = new DbfRelationshipService()
 
-    it.each(['NOM', 'TABNOM', 'INDKOD', 'CLIENT_ID', 'НОМ'])('keeps shared identifier %s in six tables', name => {
+    it.each(['NOM', 'TABNOM', 'INDKOD', 'CLIENT_ID', '\u041d\u041e\u041c'])('keeps shared identifier %s in six tables', name => {
         const inputs = files(...Array.from({ length: 6 }, (_, i) => [`T${i}.DBF`, table([[name, 'C']])] as const))
         expect(service.buildGraph(inputs).stats.autoName).toBe(15)
     })
@@ -67,21 +67,21 @@ describe('DbfRelationshipService', () => {
 
     it('normalizes Cyrillic names, case and separators for key lookup', () => {
         const cyrillic = service.buildGraph(files(
-            ['ORDERS.DBF', table([['КОД_ОТДЕЛ', 'C']])],
-            ['от-делы.dbf', table([['КОД', 'V']])],
+            ['ORDERS.DBF', table([['\u041a\u041e\u0414_\u041e\u0422\u0414\u0415\u041b', 'C']])],
+            ['\u043e\u0442-\u0434\u0435\u043b\u044b.dbf', table([['\u041a\u041e\u0414', 'V']])],
         ))
         expect(cyrillic.relationships).toEqual([expect.objectContaining({
-            kind: 'auto_fk', targetFile: 'от-делы.dbf', targetField: 'КОД',
+            kind: 'auto_fk', targetFile: '\u043e\u0442-\u0434\u0435\u043b\u044b.dbf', targetField: '\u041a\u041e\u0414',
         })])
     })
 
     it('matches compatible storage types and preserves the original field names', () => {
         const graph = service.buildGraph(files(
             ['A.DBF', table([['TAB_NOM', 'C'], ['CLIENT_ID', 'N']])],
-            ['B.DBF', table([['табном', 'V'], ['CLIENT_ID', '+']])],
+            ['B.DBF', table([['\u0442\u0430\u0431\u043d\u043e\u043c', 'V'], ['CLIENT_ID', '+']])],
         ))
         expect(graph.stats.autoName).toBe(2)
-        expect(graph.relationships[0]).toMatchObject({ sourceField: 'TAB_NOM', targetField: 'табном' })
+        expect(graph.relationships[0]).toMatchObject({ sourceField: 'TAB_NOM', targetField: '\u0442\u0430\u0431\u043d\u043e\u043c' })
     })
 
     it('does not infer keys to incompatible, memo or system fields', () => {
@@ -256,7 +256,7 @@ describe('MysqlExportService links with values missing from the parent', () => {
     it('leaves the link out, saying how to keep it, when the option is off', () => {
         const s = session()
         const plan = new MysqlExportService().plan(s, relationships.buildGraph(s.files).relationships, { ...options, orphansAsNull: false })
-        expect(plan.foreignKeys).toEqual([expect.objectContaining({ status: 'skip', reason: expect.stringContaining('Значення без відповідника → NULL') })])
+        expect(plan.foreignKeys).toEqual([expect.objectContaining({ status: 'skip', reason: expect.stringContaining('Unmatched values → NULL') })])
         expect(plan.quality).toHaveLength(0)
     })
 })

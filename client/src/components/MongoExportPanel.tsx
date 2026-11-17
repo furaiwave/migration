@@ -35,25 +35,25 @@ const DEFAULT_OPTIONS: MysqlExportOptions = {
 type Toggle = 'includeData' | 'foreignKeys' | 'indexes' | 'keepDeleted' | 'emptyStringsAsNull' | 'orphansAsNull'
 
 const TOGGLES: ReadonlyArray<{ key: Toggle; label: string; title?: string }> = [
-    { key: 'includeData', get label() { return translate("Включати дані") } },
-    { key: 'foreignKeys', get label() { return translate("Індексувати посилання") }, get title() { return translate("Зв'язки, перевірені на даних, отримують індекс на дочірньому полі — $lookup працює швидко") } },
-    { key: 'indexes', get label() { return translate("Створювати індекси з .CDX") } },
-    { key: 'keepDeleted', get label() { return translate("Зберігати видалені записи в <колекція>_deleted") }, get title() { return translate("Інакше записи, позначені в DBF як видалені (*), пропускаються") } },
-    { key: 'emptyStringsAsNull', get label() { return translate("Порожній текст → null замість ''") } },
+    { key: 'includeData', get label() { return translate("Include data") } },
+    { key: 'foreignKeys', get label() { return translate("Index references") }, get title() { return translate("Validated relationships get a child-field index for fast $lookup") } },
+    { key: 'indexes', get label() { return translate("Create indexes from .CDX") } },
+    { key: 'keepDeleted', get label() { return translate("Keep deleted records in <collection>_deleted") }, get title() { return translate("Otherwise, source records marked as deleted (*) are skipped") } },
+    { key: 'emptyStringsAsNull', get label() { return translate("Empty text → null instead of ''") } },
     {
         key: 'orphansAsNull',
-        get label() { return translate("Значення без відповідника → null") },
-        get title() { return translate("Посилання на запис, якого немає в батьківській таблиці (0 як «не вказано», видалений запис), записується як null — і зв'язок створюється. Інакше такий зв'язок пропускається.") },
+        get label() { return translate("Unmatched values → null") },
+        get title() { return translate("References missing from the parent table (such as 0 or a deleted record) become null, so the relationship can be created. Otherwise the relationship is skipped.") },
     },
 ]
 
 const WRITE_MODES: ReadonlyArray<{ value: MysqlWriteMode; label: string; hint: string }> = [
-    { value: 'replace', get label() { return translate("Замінити колекції") }, get hint() { return translate("Наявні колекції з такими самими назвами видаляються й створюються заново.") } },
-    { value: 'append', get label() { return translate("Дописати документи") }, get hint() { return translate("Документи додаються до наявних колекцій (з помилкою, якщо документ із таким _id уже є).") } },
+    { value: 'replace', get label() { return translate("Replace collections") }, get hint() { return translate("Existing collections with the same names are deleted and recreated.") } },
+    { value: 'append', get label() { return translate("Append documents") }, get hint() { return translate("Documents are added to existing collections; duplicate _id values cause an error.") } },
     {
         value: 'sync',
-        get label() { return translate("Синхронізувати (нові та змінені)") },
-        get hint() { return translate("Запускайте повторно, поки стара система ще працює: документи замінюються за _id, нові додаються, решта лишається як є. Колекції без _id з первинного ключа завантажуються заново.") },
+        get label() { return translate("Synchronize (new and changed)") },
+        get hint() { return translate("Repeat while the old system is running: replace documents by _id, add new ones and keep the rest. Collections without a primary-key _id are reloaded.") },
     },
 ]
 
@@ -102,14 +102,14 @@ export function MongoExportPanel({ sessionId, graph }: MongoExportPanelProps) {
 
     const databaseValid = DATABASE_PATTERN.test(options.database ?? '')
     const blockingIssues = plan?.quality.filter((q) => q.effect === 'fail').length ?? 0
-    const fileName = `${options.database || 'dbf_export'}.js`
+    const fileName = `${options.database || "data_export"}.js`
 
     return (
         <section className="flex flex-col gap-4">
             <div className="flex flex-col gap-4 border p-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="mongoDatabase" className="text-xs text-muted-foreground">{translate("Назва бази даних")}</Label>
+                        <Label htmlFor="mongoDatabase" className="text-xs text-muted-foreground">{translate("Database name")}</Label>
                         <Input
                             id="mongoDatabase"
                             placeholder="legacy_db"
@@ -120,7 +120,7 @@ export function MongoExportPanel({ sessionId, graph }: MongoExportPanelProps) {
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground">{translate("Наявні колекції")}</Label>
+                        <Label className="text-xs text-muted-foreground">{translate("Existing collections")}</Label>
                         <Select
                             items={WRITE_MODES.map(({ value, label }) => ({ value, label }))}
                             value={options.writeMode}
@@ -153,7 +153,7 @@ export function MongoExportPanel({ sessionId, graph }: MongoExportPanelProps) {
                         onClick={() => { void script.mutate({ sessionId, options }).catch(() => { /* surfaced via script.state */ }) }}
                     >
                         {script.isPending ? <Loader2 className="animate-spin" /> : <Download />}
-                        {translate("Завантажити")} {fileName}
+                        {translate("Download")} {fileName}
                     </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -167,23 +167,23 @@ export function MongoExportPanel({ sessionId, graph }: MongoExportPanelProps) {
                                 disabled={!options.includeData}
                                 onChange={(e) => setOptions((o) => ({ ...o, syncDeletes: e.target.checked }))}
                             />
-                            {translate("Також видаляти з MongoDB документи, яких уже немає в DBF (видалені або прибрані PACK у старій системі)")}
+                            {translate("Also delete MongoDB documents no longer in the source (deleted or removed by PACK in the old system)")}
                         </label>
                     )}
                 </div>
                 {!databaseValid && (
-                    <p className="text-xs text-destructive">{translate("Назва бази даних: лише латинські літери, цифри та _, до 64 символів.")}</p>
+                    <p className="text-xs text-destructive">{translate("Database name: Latin letters, digits and _ only, up to 64 characters.")}</p>
                 )}
                 {script.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(script.state.error)}</p>}
                 {blockingIssues > 0 && (
                     <p className="text-xs text-destructive">
-                        {translate("Скрипт можна завантажити, але MongoDB зупиниться на проблемах у даних (")}{blockingIssues}{translate(") — див. «Якість даних» нижче.")}
+                        {translate("The script can be downloaded, but MongoDB will stop on data issues (")}{blockingIssues}{translate(") — see Data quality below.")}
                     </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                    {translate("Запуск:")} <code className="bg-muted px-1">mongosh "mongodb://localhost:27017" {fileName}</code>
-                    {' '}{translate("або в MongoDB Compass: вкладка «Mongosh»,")} <code className="bg-muted px-1">load("{fileName}")</code>.
-                    {!options.database && translate(" Без назви бази скрипт пише в поточну базу mongosh.")}
+                    {translate("Run:")} <code className="bg-muted px-1">mongosh "mongodb://localhost:27017" {fileName}</code>
+                    {' '}{translate("or in MongoDB Compass: Mongosh tab,")} <code className="bg-muted px-1">load("{fileName}")</code>.
+                    {!options.database && translate(" Without a database name, the script writes to the current mongosh database.")}
                 </p>
             </div>
 
@@ -193,13 +193,13 @@ export function MongoExportPanel({ sessionId, graph }: MongoExportPanelProps) {
                 <p className="text-sm text-destructive">
                     {errorMessage(planState.error)}
                     {Object.keys(overrides).length > 0 && (
-                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>{translate("Скинути зміни")}</Button>
+                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>{translate("Reset changes")}</Button>
                     )}
                 </p>
             )}
             {planState.status === 'pending' && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin" /> {plan ? translate("Оновлюю план…") : translate("Будую план і перевіряю кожен запис…")}
+                    <Loader2 className="size-3.5 animate-spin" /> {plan ? translate("Updating plan…") : translate("Building plan and checking every record…")}
                 </p>
             )}
             {plan && (

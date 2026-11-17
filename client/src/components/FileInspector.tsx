@@ -28,17 +28,17 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
   return (
     <div className="flex flex-col gap-4">
       <EncodingPicker sessionId={sessionId} file={file} onFileChange={onFileChange} />
-      <details className="workspace-file-metadata"><summary>{translate("Технічні дані файлу")}{file.header.recordCount>file.totalRecords && <span className="text-amber-600">{translate("Видалених: {0}",[file.header.recordCount-file.totalRecords])}</span>}</summary><div><HeaderInspector header={file.header} encoding={file.encoding} memoFile={file.memoFile} liveRecords={file.totalRecords} /></div></details>
+      <details className="workspace-file-metadata"><summary>{translate("Technical file details")}{file.header.recordCount>file.totalRecords && <span className="text-amber-600">{translate("Deleted: {0}",[file.header.recordCount-file.totalRecords])}</span>}</summary><div><HeaderInspector header={file.header} encoding={file.encoding} memoFile={file.memoFile} liveRecords={file.totalRecords} /></div></details>
       {file.index && <IndexTags index={file.index} />}
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">
-            {view === 'schema' ? translate("Структура полів") : translate("Перегляд записів")}
+            {view === 'schema' ? translate("Field structure") : translate("Record preview")}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
               {view === 'schema'
-                ? `${file.header.fields.length} ${plural(file.header.fields.length, translate("поле"), translate("поля"), translate("полів"))}`
-                : translate("{0} з {1} {2}", [file.preview.length, file.totalRecords.toLocaleString(getLanguage()), plural(file.totalRecords, translate("запису"), translate("записів"), translate("записів"))])}
+                ? `${file.header.fields.length} ${plural(file.header.fields.length, translate("field"), translate("fields (few)"), translate("fields (many)"))}`
+                : translate("{0} of {1} {2}", [file.preview.length, file.totalRecords.toLocaleString(getLanguage()), plural(file.totalRecords, translate("record"), translate("records"), translate("records"))])}
             </span>
           </h3>
           <div className="flex gap-1">
@@ -47,14 +47,14 @@ export function FileInspector({ sessionId, file, onFileChange }: FileInspectorPr
               size="sm"
               onClick={() => setView('schema')}
             >
-              {translate("Структура")}
+              {translate("Structure")}
             </Button>
             <Button
               variant={view === 'data' ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => setView('data')}
             >
-              {translate("Дані")}
+              {translate("Data")}
             </Button>
           </div>
         </div>
@@ -73,21 +73,21 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-sm font-semibold">
-        {translate("Індекси")}
+        {translate("Indexes")}
         <span className="ml-2 text-xs font-normal text-muted-foreground">
-          {index.fileName} · {index.tags.length} {plural(index.tags.length, translate("тег"), translate("теги"), translate("тегів"))}
+          {index.fileName} · {index.tags.length} {plural(index.tags.length, translate("tag"), translate("tags (few)"), translate("tags (many)"))}
         </span>
       </h3>
       {index.error ? (
-        <p className="text-xs text-destructive">{translate("Не вдалося прочитати")} {index.fileName}: {index.error}</p>
+        <p className="text-xs text-destructive">{translate("Could not read")} {index.fileName}: {index.error}</p>
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{translate("Тег")}</TableHead>
-              <TableHead>{translate("Вираз ключа")}</TableHead>
-              <TableHead>{translate("Фільтр (FOR)")}</TableHead>
-              <TableHead>{translate("Вид")}</TableHead>
+              <TableHead>{translate("Tag")}</TableHead>
+              <TableHead>{translate("Key expression")}</TableHead>
+              <TableHead>{translate("Filter (FOR)")}</TableHead>
+              <TableHead>{translate("Kind")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -97,7 +97,7 @@ function IndexTags({ index }: { index: DbfIndexInfo }) {
                 <TableCell className="font-mono text-xs">{t.expression}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{t.filter ?? '—'}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {[t.candidate && translate("кандидат"), t.unique && translate("унікальний"), t.descending && translate("спадний")].filter(Boolean).join(', ') || translate("звичайний")}
+                  {[t.candidate && translate("candidate"), t.unique && translate("unique"), t.descending && translate("descending")].filter(Boolean).join(', ') || translate("regular")}
                 </TableCell>
               </TableRow>
             ))}
@@ -116,7 +116,7 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
   const value = file.encodingSource === 'manual' ? file.encoding : '';
   const items = ENCODINGS.map((e) =>
     e.value === '' && file.encodingSource !== 'manual'
-      ? { value: '', label: translate("Автоматично — {0}, {1}", [file.encoding, ENCODING_SOURCE_LABEL[file.encodingSource]]) }
+      ? { value: '', label: translate("Automatic — {0}, {1}", [file.encoding, ENCODING_SOURCE_LABEL[file.encodingSource]]) }
       : { value: e.value, label: e.label },
   );
 
@@ -134,7 +134,7 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs">
-      <span className="font-semibold">{translate("Кодування тексту")}</span>
+      <span className="font-semibold">{translate("Text encoding")}</span>
       <Select items={items} value={value} onValueChange={(v) => choose(v ?? '')} disabled={pending}>
         <SelectTrigger size="sm" className="min-w-72">
           <SelectValue />
@@ -146,10 +146,10 @@ function EncodingPicker({ sessionId, file, onFileChange }: FileInspectorProps) {
       {pending && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
       <span className="text-muted-foreground">
         {file.encodingSource === 'detected'
-          ? translate("{0}, тому кодування визначено за текстом — перевірте вкладку «Дані»; якщо літери неправильні, виберіть інше кодування.", [file.header.codePage === 0
-              ? translate("У файлі немає позначки кодової сторінки")
-              : translate("Позначка кодової сторінки (0x{0}) невідома або не відповідає тексту", [file.header.codePage.toString(16).toUpperCase()])])
-          : translate("Це кодування використовується для назв полів, перегляду та перенесення даних.")}
+          ? translate("{0}; encoding was detected from the text. Check the Data tab and choose another encoding if letters look wrong.", [file.header.codePage === 0
+              ? translate("The file has no code page marker")
+              : translate("The code page marker (0x{0}) is unknown or does not match the text", [file.header.codePage.toString(16).toUpperCase()])])
+          : translate("This encoding is used for field names, previews and data transfer.")}
       </span>
       {error && <span className="text-destructive">{errorMessage(error)}</span>}
     </div>

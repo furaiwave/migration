@@ -15,21 +15,21 @@ interface FileDropzoneProps {
 }
 
 // Tables plus their memo files (.fpt FoxPro, .dbt dBASE) and index files (.cdx), matched by name on the server.
-const DBF_PATTERN = /\.(dbf|fpt|dbt|cdx)$/i
+const SOURCE_FILE_PATTERN = /\.(dbf|fpt|dbt|cdx)$/i
 const TABLE_PATTERN = /\.dbf$/i
 const INDEX_PATTERN = /\.cdx$/i
 
 const kindOf = (name: string): string =>
-    TABLE_PATTERN.test(name) ? translate("таблиця") : INDEX_PATTERN.test(name) ? translate("індекс") : 'memo'
+    TABLE_PATTERN.test(name) ? translate("table (subject)") : INDEX_PATTERN.test(name) ? translate("index") : 'memo'
 // Matches the server limit; memo and index files do not count as tables.
 const MAX_TABLES = 30
 
 const baseName = (name: string): string => name.replace(/\.[^.]+$/, '').toUpperCase()
-const extensionOf = (name: string): string => /\.[^.]+$/.exec(name)?.[0].toLowerCase() ?? translate("(без розширення)")
+const extensionOf = (name: string): string => /\.[^.]+$/.exec(name)?.[0].toLowerCase() ?? translate("(no extension)")
 
 function formatSize(bytes: number): string {
-    if (bytes < 1024 * 1024) return translate("{0} КБ", [(bytes / 1024).toLocaleString(getLanguage(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })])
-    return translate("{0} МБ", [(bytes / 1024 / 1024).toLocaleString(getLanguage(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })])
+    if (bytes < 1024 * 1024) return translate("{0} KB", [(bytes / 1024).toLocaleString(getLanguage(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })])
+    return translate("{0} MB", [(bytes / 1024 / 1024).toLocaleString(getLanguage(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })])
 }
 
 /** Every file in a dropped folder, subfolders included. Plain file drops pass straight through. */
@@ -72,8 +72,8 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
     const folderRef = useRef<HTMLInputElement>(null)
 
     const ingest = useCallback((incoming: readonly File[]) => {
-        const accepted = incoming.filter((f) => DBF_PATTERN.test(f.name))
-        const others = incoming.filter((f) => !DBF_PATTERN.test(f.name))
+        const accepted = incoming.filter((f) => SOURCE_FILE_PATTERN.test(f.name))
+        const others = incoming.filter((f) => !SOURCE_FILE_PATTERN.test(f.name))
 
         const seen = new Set(files.map((p) => p.name.toUpperCase()))
         const duplicates: string[] = []
@@ -100,7 +100,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
     const byExtension = new Map<string, number>()
     for (const f of notice.skipped) byExtension.set(extensionOf(f.name), (byExtension.get(extensionOf(f.name)) ?? 0) + 1)
     const skipped = notice.skipped.length === 0 ? null
-        : translate("Пропущено {0} {1}: ", [notice.skipped.length, plural(notice.skipped.length, translate("інший файл"), translate("інші файли"), translate("інших файлів"))]) +
+        : translate("Skipped {0} {1}: ", [notice.skipped.length, plural(notice.skipped.length, translate("other file"), translate("other files (few)"), translate("other files (many)"))]) +
           [...byExtension.entries()].sort((a, b) => b[1] - a[1]).map(([ext, n]) => `${ext} ×${n}`).join(', ')
 
     const removeFile = (name: string) => setFiles((prev) => prev.filter((f) => f.name !== name))
@@ -138,9 +138,9 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                     ? <Loader2 className="size-8 animate-spin text-muted-foreground" />
                     : <Upload className={cn('size-8', dragging ? 'text-primary' : 'text-muted-foreground')} />}
                 <div>
-                    <p className="text-sm font-medium">{translate("Перетягніть сюди папку бази даних або файли .dbf (разом із memo-файлами .fpt/.dbt та індексами .cdx) чи натисніть, щоб вибрати файли")}</p>
+                    <p className="text-sm font-medium">{translate("Drop a database folder or table files here (with memo and index files), or click to choose files")}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                        {translate("Вкладені папки теж читаються, інші файли пропускаються. До")} {MAX_TABLES} {translate("таблиць; зв'язки між таблицями визначаються автоматично.")}
+                        {translate("Subfolders are included; other files are skipped. Up to")} {MAX_TABLES} {translate("tables; relationships are detected automatically.")}
                     </p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
@@ -150,7 +150,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}
                     >
-                        <Upload /> {translate("Вибрати файли")}
+                        <Upload /> {translate("Choose files")}
                     </Button>
                     <Button
                         type="button"
@@ -158,17 +158,17 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                         size="sm"
                         onClick={(e) => { e.stopPropagation(); folderRef.current?.click() }}
                     >
-                        <FolderOpen /> {translate("Вибрати папку")}
+                        <FolderOpen /> {translate("Choose folder")}
                     </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    {translate("«Вибрати файли» показує файли .dbf, .fpt, .dbt та .cdx. У вікні «Вибрати папку» видно лише папки — файли з них буде додано автоматично.")}
+                    {translate("“Choose files” shows table, memo and index files. “Choose folder” shows folders only; their files are added automatically.")}
                 </p>
                 <input
                     ref={inputRef}
                     type="file"
                     accept=".dbf,.fpt,.dbt,.cdx"
-                    aria-label={translate("Вибрати файли бази даних")}
+                    aria-label={translate("Choose database files")}
                     multiple
                     className="hidden"
                     onClick={(e) => e.stopPropagation()}
@@ -190,11 +190,11 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                     {skipped && <span>{skipped}.</span>}
                     {notice.duplicates.length > 0 && (
                         <span>
-                            {translate("Пропущено")} {notice.duplicates.length} {plural(notice.duplicates.length, translate("файл"), translate("файли"), translate("файлів"))} {translate("з назвою, яка вже є в списку (таблиці зіставляються за назвою):")} {notice.duplicates.slice(0, 5).join(', ')}{notice.duplicates.length > 5 ? ', …' : ''}
+                            {translate("Skipped")} {notice.duplicates.length} {plural(notice.duplicates.length, translate("file"), translate("files (few)"), translate("files (many)"))} {translate("with a name already in the list (tables are matched by name):")} {notice.duplicates.slice(0, 5).join(', ')}{notice.duplicates.length > 5 ? ', …' : ''}
                         </span>
                     )}
                     {orphans.length > 0 && (
-                        <span>{translate("Не надсилаються — memo- та індексні файли без свого .dbf:")} {orphans.map((f) => f.name).join(', ')}</span>
+                        <span>{translate("Not uploaded — memo/index files without their table:")} {orphans.map((f) => f.name).join(', ')}</span>
                     )}
                 </div>
             )}
@@ -203,21 +203,21 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2 text-xs">
                         <span className="text-muted-foreground tabular-nums">
-                            {tables.length} {plural(tables.length, translate("таблиця"), translate("таблиці"), translate("таблиць"))}
-                            {sideFiles > 0 && ` + ${sideFiles} ${plural(sideFiles, translate("memo/індексний файл"), translate("memo/індексні файли"), translate("memo/індексних файлів"))}`}
+                            {tables.length} {plural(tables.length, translate("table (subject)"), translate("tables (few)"), translate("tables (many)"))}
+                            {sideFiles > 0 && ` + ${sideFiles} ${plural(sideFiles, translate("memo/index file"), translate("memo/index files (few)"), translate("memo/index files (many)"))}`}
                             {' · '}{formatSize(totalSize)}
                         </span>
                         <Button variant="ghost" size="sm" onClick={() => { setFiles([]); setNotice({ skipped: [], duplicates: [] }) }}>
-                            <Trash2 /> {translate("Очистити")}
+                            <Trash2 /> {translate("Clear")}
                         </Button>
                     </div>
                     <Table containerClassName="max-h-72">
                         <TableHeader>
                             <TableRow>
-                                <TableHead>{translate("Файл")}</TableHead>
-                                <TableHead>{translate("Тип")}</TableHead>
-                                <TableHead>{translate("Папка")}</TableHead>
-                                <TableHead className="text-right">{translate("Розмір")}</TableHead>
+                                <TableHead>{translate("File")}</TableHead>
+                                <TableHead>{translate("Type")}</TableHead>
+                                <TableHead>{translate("Folder")}</TableHead>
+                                <TableHead className="text-right">{translate("Size")}</TableHead>
                                 <TableHead className="w-12" />
                             </TableRow>
                         </TableHeader>
@@ -231,7 +231,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                                     </TableCell>
                                     <TableCell className="text-right tabular-nums">{formatSize(f.size)}</TableCell>
                                     <TableCell className="text-center">
-                                        <button onClick={() => removeFile(f.name)} className="text-muted-foreground hover:text-destructive" aria-label={translate("Прибрати {0}", [f.name])}>
+                                        <button onClick={() => removeFile(f.name)} className="text-muted-foreground hover:text-destructive" aria-label={translate("Remove {0}", [f.name])}>
                                             <FileX2 className="size-3.5" />
                                         </button>
                                     </TableCell>
@@ -242,7 +242,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                 </div>
             )}
             {tooMany && (
-                <p className="text-sm text-destructive">{translate("Таблиць:")} {tables.length} {translate("— не більше")} {MAX_TABLES} {translate("в одній сесії. Приберіть частину або розділіть папку.")}</p>
+                <p className="text-sm text-destructive">{translate("Tables:")} {tables.length} {translate("— maximum")} {MAX_TABLES} {translate("per session. Remove some tables or split the folder.")}</p>
             )}
             {errorMessage && (
                 <p className="text-sm text-destructive">{errorMessage}</p>
@@ -250,7 +250,7 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
 
             <div className="workspace-upload-actions flex flex-wrap items-end justify-between gap-4">
                 <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="previewRows" className="text-xs text-muted-foreground">{translate("Рядків у перегляді")}</Label>
+                    <Label htmlFor="previewRows" className="text-xs text-muted-foreground">{translate("Preview rows")}</Label>
                     <Input
                         id="previewRows"
                         type="number"
@@ -266,8 +266,8 @@ export function FileDropzone({ isPending, errorMessage, onSubmit}: FileDropzoneP
                     onClick={() => onSubmit(toSend, previewRows)}
                 >
                     { isPending
-                        ? <><Loader2 className="animate-spin" /> {translate("Завантаження й читання…")}</>
-                        : tables.length > 0 ? translate("Відкрити {0} {1}", [tables.length, plural(tables.length, translate("таблицю"), translate("таблиці"), translate("таблиць"))]) : translate("Відкрити таблиці")}
+                        ? <><Loader2 className="animate-spin" /> {translate("Uploading and reading…")}</>
+                        : tables.length > 0 ? translate("Open {0} {1}", [tables.length, plural(tables.length, translate("table (object)"), translate("tables (few)"), translate("tables (many)"))]) : translate("Open tables")}
                 </Button>
             </div>
         </div>

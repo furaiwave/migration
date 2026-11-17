@@ -1,10 +1,12 @@
+import { DatabaseMigrationPanel } from "@/components/DatabaseMigrationPanel";
+import { hasDatabaseMigrationJob } from "@/lib/databaseMigration";
 import { WorkspaceOverview } from "@/components/WorkspaceOverview";
 import { DatabaseDiscovery } from "@/components/DatabaseDiscovery";
 import { ActivityConsole } from "@/components/ActivityConsole";
 import { translate, useLanguage } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileDropzone } from "@/components/FileDropzone";
@@ -25,6 +27,10 @@ import { lastSession, rememberSession } from "@/lib/lastSession";
 
 export default function App() {
   useLanguage();
+  const [mode, setMode] = useState<"files" | "database">("files");
+  const [databaseOpened, setDatabaseOpened] = useState(hasDatabaseMigrationJob);
+  const [migrating, setMigrating] = useState(false);
+  const handleMigrationBusy = useCallback((busy: boolean) => { setMigrating(busy); if (busy) setMode("database"); }, []);
   const parse = useParseFiles();
   const addRel = useAddRelationship();
 
@@ -119,10 +125,10 @@ export default function App() {
             </span>
             <div>
               <h1 className="font-mono text-sm font-semibold tracking-tight">
-                dbf inspector
+                Data Migrator
               </h1>
               <p className="text-xs text-muted-foreground">
-                {translate("Перегляд та перенесення таблиць DBF")}
+                {translate("Data migration")}
               </p>
             </div>
           </div>
@@ -131,7 +137,7 @@ export default function App() {
             <ThemeToggle />
             {session && (
               <Button variant="outline" size="sm" onClick={reset}>
-                <RotateCcw /> {translate("Нова сесія")}
+                <RotateCcw /> {translate("New session")}
               </Button>
             )}
           </div>
@@ -139,6 +145,15 @@ export default function App() {
       </header>
 
       <main className="workspace-main">
+        <label className="mb-5 flex flex-wrap items-center gap-3 text-sm font-semibold">
+          {translate("Source data")}
+          <select className="h-10 border bg-background px-3 text-sm" value={mode} disabled={migrating} onChange={event => { setMode(event.target.value as "files" | "database"); if (event.target.value === "database") setDatabaseOpened(true); }}>
+            <option value="files">{translate("Table files")}</option>
+            <option value="database">{translate("Between databases")}</option>
+          </select>
+        </label>
+        <div hidden={mode !== "database"}>{databaseOpened && <DatabaseMigrationPanel onBusy={handleMigrationBusy} />}</div>
+        <div hidden={mode !== "files"}>
         <WorkspaceOverview
           session={session}
           graph={graph}
@@ -152,30 +167,30 @@ export default function App() {
             {restoring && !session ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />{" "}
-                {translate("Відкриваю останню сесію…")}
+                {translate("Opening the last session…")}
               </p>
             ) : restoreError && !session ? (
               <div className="flex flex-col items-start gap-3 border border-destructive/40 p-4 text-sm">
                 <p className="text-destructive">
-                  {translate("Не вдалося відкрити останню сесію:")}{" "}
+                  {translate("Could not open the last session:")}{" "}
                   {errorMessage(restoreError)}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {CLOUD_APP ? (
-                    <>{translate("Сесія зберігається на сервері добу. Перевірте з’єднання та повторіть спробу або завантажте файли знову.")}</>
+                    <>{translate("Sessions stay on the server for one day. Check your connection and retry, or upload the files again.")}</>
                   ) : BUNDLED_APP ? (
                     <>
                       {translate(
-                        "Сесія зберігається на сервері добу. Перезапустіть програму dbf inspector і спробуйте ще раз.",
+                        "Sessions stay on the server for 24 hours. Restart Data Migrator and try again.",
                       )}
                     </>
                   ) : (
                     <>
                       {translate(
-                        "Сесія зберігається на сервері добу. Запустіть бекенд (",
+                        "Sessions stay on the server for 24 hours. Start the backend (",
                       )}
                       <code className="bg-muted px-1">npm run start:dev</code>{" "}
-                      {translate("у migration-gateway) і спробуйте ще раз.")}
+                      {translate("in migration-gateway) and try again.")}
                     </>
                   )}
                 </p>
@@ -187,7 +202,7 @@ export default function App() {
                       setRestoreAttempt((n) => n + 1);
                     }}
                   >
-                    <RotateCcw /> {translate("Спробувати ще раз")}
+                    <RotateCcw /> {translate("Try again")}
                   </Button>
                   <Button
                     size="sm"
@@ -197,7 +212,7 @@ export default function App() {
                       setRestoreError(null);
                     }}
                   >
-                    {translate("Почати нову сесію")}
+                    {translate("Start a new session")}
                   </Button>
                 </div>
               </div>
@@ -206,10 +221,10 @@ export default function App() {
                 <div className="workspace-section-heading">
                   <span className="workspace-step-index">02</span>
                   <div>
-                    <h2>{translate("Джерело даних")}</h2>
+                    <h2>{translate("Source data")}</h2>
                     <p>
                       {translate(
-                        "Додайте .dbf разом із memo-файлами та індексами.",
+                        "Add table files together with their memo files and indexes.",
                       )}
                     </p>
                   </div>
@@ -232,15 +247,15 @@ export default function App() {
                   <div className="workspace-section-heading">
                     <span className="workspace-step-index">02</span>
                     <div>
-                      <h2>{translate("Джерело даних")}</h2>
+                      <h2>{translate("Source data")}</h2>
                       <p>
                         {translate(
-                          "Перевірте кодування, колонки та приклади записів.",
+                          "Review encoding, columns and sample records.",
                         )}
                       </p>
                     </div>
                     <span className="workspace-section-tag">
-                      {session.files.length} DBF
+                      {translate("Tables")}: {session.files.length}
                     </span>
                   </div>
                   <div className="workspace-card-body">
@@ -256,10 +271,10 @@ export default function App() {
                     <div className="workspace-section-heading">
                       <span className="workspace-step-index">03</span>
                       <div>
-                        <h2>{translate("Перевірка")}</h2>
+                        <h2>{translate("Verification")}</h2>
                         <p>
                           {translate(
-                            "Уточніть зв’язки між таблицями перед перенесенням.",
+                            "Review relationships between tables before transferring.",
                           )}
                         </p>
                       </div>
@@ -286,10 +301,10 @@ export default function App() {
                     <div className="workspace-section-heading">
                       <span className="workspace-step-index">04</span>
                       <div>
-                        <h2>{translate("Перенесення")}</h2>
+                        <h2>{translate("Transfer")}</h2>
                         <p>
                           {translate(
-                            "Оберіть СУБД, перевірте план і запустіть імпорт.",
+                            "Choose a DBMS, review the plan and start the import.",
                           )}
                         </p>
                       </div>
@@ -306,6 +321,7 @@ export default function App() {
               </>
             )}
           </div>
+        </div>
         </div>
       </main>
       <ActivityConsole />

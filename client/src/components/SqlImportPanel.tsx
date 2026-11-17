@@ -178,11 +178,11 @@ export function SqlImportPanel({
   return (
     <section className="flex flex-col gap-4 border p-4">
       <h3 className="text-sm font-semibold">
-        {translate("Імпорт")} · {name}
+        {translate("Import")} · {name}
       </h3>
       <p className="text-xs text-muted-foreground">
         {translate(
-          "Вкажіть наявну базу даних. Помилка або зупинка відкочує весь імпорт. Схема: {0}.",
+          "Enter an existing database. Failure or cancellation rolls back the entire import. Schema: {0}.",
           [dialect === "postgres" ? "public" : "dbo"],
         )}
       </p>
@@ -190,20 +190,20 @@ export function SqlImportPanel({
         disabled={busy}
         className="workspace-fieldset disabled:opacity-60"
       >
-        <legend>{translate("З’єднання з базою")}</legend>
+        <legend>{translate("Database connection")}</legend>
         <div className="workspace-connection-fields">
           {(["host", "port", "user", "password", "database"] as const).map(
             (key) => (
               <label key={key} className="flex flex-col gap-1 text-xs">
                 {key === "host"
-                  ? translate("Хост")
+                  ? translate("Host")
                   : key === "port"
-                    ? translate("Порт")
+                    ? translate("Port")
                     : key === "user"
-                      ? translate("Користувач")
+                      ? translate("User")
                       : key === "password"
-                        ? translate("Пароль")
-                        : translate("База даних")}
+                        ? translate("Password")
+                        : translate("Database")}
                 <Input
                   type={
                     key === "password"
@@ -251,7 +251,7 @@ export function SqlImportPanel({
                 update({ trustServerCertificate: e.target.checked })
               }
             />
-            {translate("Довіряти сертифікату сервера")}
+            {translate("Trust server certificate")}
           </label>
         </div>
       </fieldset>
@@ -259,10 +259,10 @@ export function SqlImportPanel({
         disabled={busy}
         className="workspace-fieldset disabled:opacity-60"
       >
-        <legend>{translate("Параметри перенесення")}</legend>
+        <legend>{translate("Transfer options")}</legend>
         <div className="workspace-import-options">
           <label className="flex flex-col gap-1 text-xs">
-            {translate("Режим імпорту")}
+            {translate("Import mode")}
             <select
               className="h-8 border bg-background px-2"
               value={options.writeMode}
@@ -273,8 +273,8 @@ export function SqlImportPanel({
                 }))
               }
             >
-              <option value="append">{translate("Дописати рядки")}</option>
-              <option value="replace">{translate("Замінити таблиці")}</option>
+              <option value="append">{translate("Append rows")}</option>
+              <option value="replace">{translate("Replace tables")}</option>
             </select>
           </label>
           {(
@@ -295,14 +295,14 @@ export function SqlImportPanel({
                 }
               />
               {key === "includeData"
-                ? translate("Включати дані (INSERT)")
+                ? translate("Include data (INSERT)")
                 : key === "foreignKeys"
-                  ? translate("Створювати зовнішні ключі")
+                  ? translate("Create foreign keys")
                   : key === "keepDeleted"
-                    ? translate("Зберігати видалені записи в <таблиця>_deleted")
+                    ? translate("Keep deleted records in <table>_deleted")
                     : key === "emptyStringsAsNull"
-                      ? translate("Порожній текст → NULL замість ''")
-                      : translate("Значення без відповідника → NULL")}
+                      ? translate("Empty text → NULL instead of ''")
+                      : translate("Unmatched values → NULL")}
             </label>
           ))}
         </div>
@@ -310,15 +310,15 @@ export function SqlImportPanel({
       {options.writeMode === "replace" && (
         <p className="text-xs text-amber-600">
           {translate(
-            "Наявні таблиці з такими самими назвами видаляються й створюються заново.",
+            "Existing tables with matching names are deleted and recreated.",
           )}
         </p>
       )}
       {catalog.state.status === "success" && (
         <label className="flex flex-col gap-1 text-xs">
-          {translate("Доступні бази даних")}
+          {translate("Available databases")}
           <select
-            aria-label={translate("Доступні бази даних")}
+            aria-label={translate("Available databases")}
             className="h-8 border bg-background px-2"
             disabled={!!busy}
             value={
@@ -328,7 +328,7 @@ export function SqlImportPanel({
             }
             onChange={(e) => update({ database: e.target.value })}
           >
-            <option value="">{translate("Виберіть базу даних")}</option>
+            <option value="">{translate("Choose a database")}</option>
             {catalog.state.data.databases.map((db) => (
               <option key={db} value={db}>
                 {db}
@@ -337,7 +337,7 @@ export function SqlImportPanel({
           </select>
           {catalog.state.data.elapsedMs !== undefined && (
             <span className="text-muted-foreground">
-              {translate("Час перевірки: {0} мс", [
+              {translate("Check time: {0} ms", [
                 catalog.state.data.elapsedMs,
               ])}
             </span>
@@ -351,7 +351,7 @@ export function SqlImportPanel({
       )}
       {!connection.database.trim() && (
         <p className="workspace-action-hint">
-          {translate("Спочатку оберіть або введіть базу даних.")}
+          {translate("First choose or enter a database.")}
         </p>
       )}
       <div className="workspace-transfer-actions flex flex-wrap gap-2">
@@ -362,7 +362,7 @@ export function SqlImportPanel({
             void catalog.mutate({ dialect, connection }).catch(() => {});
           }}
         >
-          {translate("Завантажити список баз")}
+          {translate("Load database list")}
         </Button>
         <Button
           variant="outline"
@@ -371,19 +371,19 @@ export function SqlImportPanel({
             void test.mutate({ dialect, connection }).catch(() => {});
           }}
         >
-          {translate("Перевірити з'єднання")}
+          {translate("Test connection")}
         </Button>
         <Button
           className="ml-auto"
           disabled={!valid || busy || !ready}
           onClick={start}
         >
-          {translate("Імпорт")} → {name}
+          {translate("Import")} → {name}
         </Button>
       </div>
       {(test.isPending || run.isPending || planState.status === "pending") && (
         <p className="text-xs text-muted-foreground">
-          {translate("Перевіряю дані й підключаюся…")}
+          {translate("Checking data and connecting…")}
         </p>
       )}
       {test.state.status === "success" && (
@@ -416,9 +416,9 @@ export function SqlImportPanel({
             <table className="w-full text-left text-xs">
               <thead>
                 <tr>
-                  <th>{translate("Файл DBF")}</th>
+                  <th>{translate("Source file")}</th>
                   <th>{name}</th>
-                  <th>{translate("Рядків у DBF")}</th>
+                  <th>{translate("Source rows")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -487,7 +487,7 @@ export function SqlImportPanel({
                 disabled={cancelling}
                 onClick={cancel}
               >
-                {cancelling ? translate("Зупиняю…") : translate("Зупинити")}
+                {cancelling ? translate("Stopping…") : translate("Stop")}
               </Button>
             </>
           )}
@@ -495,15 +495,15 @@ export function SqlImportPanel({
           {job.result?.tables.map((t) => (
             <p key={t.table}>
               {t.fileName} → {t.table}: {t.importedRows} (
-              {translate("Рядків у DBF")}: {t.expectedRows})
+              {translate("Source rows")}: {t.expectedRows})
             </p>
           ))}
         </div>
       )}
       {pollError != null && (
         <p role="alert" className="text-xs text-destructive">
-          {translate("Втрачено зв'язок з імпортом:")} {errorMessage(pollError)}{" "}
-          {translate("— пробую ще раз…")}
+          {translate("Lost connection to the import:")} {errorMessage(pollError)}{" "}
+          {translate("— retrying…")}
         </p>
       )}
     </section>

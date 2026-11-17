@@ -67,63 +67,63 @@ export function DatabaseDiscovery() {
   return (
     <section
       className="workspace-destination"
-      aria-label={translate("Пошук СУБД")}
+      aria-label={translate("Database discovery")}
     >
-      <div className="workspace-destination-heading"><span className="workspace-step-index">01</span><span className="workspace-optional">{translate("Необов’язково")}</span></div>
+      <div className="workspace-destination-heading"><span className="workspace-step-index">01</span><span className="workspace-optional">{translate("Optional")}</span></div>
       <div className="flex flex-col gap-3">
         <h2 className="workspace-destination-title">
-          {translate("Сервер для майбутнього імпорту")}
+          {translate("Server for future import")}
         </h2>
         <Button size="sm" variant="outline" disabled={pending} onClick={scan}>
-          {pending ? translate("Пошук…") : translate("Знайти СУБД у системі")}
+          {pending ? translate("Searching…") : translate("Find database servers")}
         </Button>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
         {translate(
-          "Знайдений порт не підтверджує доступ до бази. Після вибору вкажіть облікові дані та перевірте з’єднання.",
+          "An open port does not confirm database access. Select a server, enter your credentials and test the connection.",
         )}
       </p>
       {CLOUD_APP && (
         <p className="text-xs leading-relaxed text-muted-foreground">
-          {translate("Пошук і підключення виконуються на хмарному сервері. Локальна СУБД вашого комп’ютера потребує мережевого доступу або VPN. localhost — це контейнер застосунку.")}
+          {translate("Discovery and connections run on the cloud server. Your computer’s local database needs network access or a VPN. localhost refers to the application container.")}
         </p>
       )}
       {servers.length > 0 && (
         <div className="flex flex-col items-stretch gap-2">
           <select
-            aria-label={translate("Знайдені сервери")}
+            aria-label={translate("Discovered servers")}
             className="h-10 w-full min-w-0 border bg-background px-2 text-xs"
             value={choice}
             onChange={(e) => setChoice(e.target.value)}
           >
-            <option value="">{translate("Виберіть сервер")}</option>
+            <option value="">{translate("Choose a server")}</option>
             {servers.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label} · {s.host.includes(':')?'['+s.host+']':s.host}:{s.port} ·{" "}
                 {s.protocolConfirmed
-                  ? translate("СУБД відповідає")
+                  ? translate("Database responds")
                   : s.reachable
-                    ? translate("Порт відкрито")
-                    : translate("Недоступний")}{" "}
+                    ? translate("Port open")
+                    : translate("Unavailable")}{" "}
 
               </option>
             ))}
           </select>
           <Button size="sm" disabled={!choice} onClick={choose}>
-            {translate("Використати для імпорту")}
+            {translate("Use for import")}
           </Button>
         </div>
       )}
       {scanned && !servers.length && (
         <p className="text-xs text-muted-foreground">
           {translate(
-            "Локальні СУБД не знайдено. Можна вказати сервер вручну у формі імпорту.",
+            "No local databases found. You can enter a server manually in the import form.",
           )}
         </p>
       )}
       {selected && (
         <p className="workspace-selected-server">
-          {translate("Вибрано: {0} · {1}:{2}", [
+          {translate("Selected: {0} · {1}:{2}", [
             selected.label,
             selected.host.includes(':')?'['+selected.host+']':selected.host,
             selected.port,

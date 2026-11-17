@@ -11,6 +11,6 @@ const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS ?? 'http://localhost:5173,htt
 async function bootstrap() {
   const port = Number(process.env.PORT ?? 3000)
   await startServer({ host: HOST, port, origins: CLIENT_ORIGINS })
-  console.log(`DBF migration API listening on http://${HOST}:${port} (clients: ${CLIENT_ORIGINS.join(', ')})`)
+  console.log(`source migration API listening on http://${HOST}:${port} (clients: ${CLIENT_ORIGINS.join(', ')})`)
 }
 bootstrap();

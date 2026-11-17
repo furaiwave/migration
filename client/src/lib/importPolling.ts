@@ -4,5 +4,5 @@ export const isMissingImportJob = (error: unknown): boolean =>
   error instanceof ApiError && error.status === 404;
 export const lostImportMessage = (): string =>
   translate(
-    "Сервер більше не має статусу цього імпорту. Перевірте стан бази перед повторним запуском.",
+    "The server no longer has this import status. Check the database before starting again.",
   );

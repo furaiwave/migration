@@ -15,8 +15,8 @@ const TARGETS: ReadonlyArray<{ value: Target; label: string; description: string
     { value: 'redis', label: 'Redis', description: '' },
     { value: 'postgres', label: 'PostgreSQL', description: '' },
     { value: 'mssql', label: 'MSSQL', description: '' },
-    { value: 'mysql', label: 'MySQL', get description() { return translate("Таблиці з типами й зовнішніми ключами: дамп .sql (CREATE TABLE, INSERT, FOREIGN KEY, utf8mb4) або імпорт напряму.") } },
-    { value: 'mongo', label: 'MongoDB', get description() { return translate("Колекції документів з BSON-типами, _id з первинного ключа й посиланнями між колекціями: скрипт mongosh або імпорт напряму.") } },
+    { value: 'mysql', label: 'MySQL', get description() { return translate("Typed tables and foreign keys: .sql dump (CREATE TABLE, INSERT, FOREIGN KEY, utf8mb4) or direct import.") } },
+    { value: 'mongo', label: 'MongoDB', get description() { return translate("Document collections with BSON types, primary-key _id and references: mongosh script or direct import.") } },
 ]
 
 // Per-browser convenience; storage may be unavailable, and then MySQL is shown first.
@@ -57,8 +57,8 @@ export function ExportPanel({ sessionId, graph }: ExportPanelProps) {
         <section className="flex flex-col gap-4">
             <div className="workspace-target-heading">
                 <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-sm font-semibold">{translate("Експорт у")}</h2>
-                    <select aria-label={translate('База даних')} value={target} onChange={e => choose(e.target.value as Target)} className="h-10 min-w-44 border border-input bg-background px-3 text-sm">
+                    <h2 className="text-sm font-semibold">{translate("Export to")}</h2>
+                    <select aria-label={translate("Database")} value={target} onChange={e => choose(e.target.value as Target)} className="h-10 min-w-44 border border-input bg-background px-3 text-sm">
                         {TARGETS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                 </div>

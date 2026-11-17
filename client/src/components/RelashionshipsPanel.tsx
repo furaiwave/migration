@@ -52,10 +52,10 @@ export function RelationshipsPanel({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">{translate("Зв'язки")}</h2>
+        <h2 className="text-sm font-semibold">{translate("Relationships")}</h2>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {translate("усього")} {stats.total} {translate("· за назвою")} {stats.autoName} {translate("· зовнішніх ключів")} {stats.autoFk} {translate("· вручну")} {stats.manual}
-          {stats.disabled > 0 && translate(" · вимкнено {0}", [stats.disabled])}
+          {translate("total")} {stats.total} {translate("· by name")} {stats.autoName} {translate("· foreign keys")} {stats.autoFk} {translate("· manual")} {stats.manual}
+          {stats.disabled > 0 && translate(" · disabled {0}", [stats.disabled])}
         </p>
       </div>
       <RelationshipList

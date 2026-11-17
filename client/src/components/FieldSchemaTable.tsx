@@ -13,12 +13,12 @@ export function FieldSchemaTable({ fields }: FieldSchemaTableProps){
             <TableHeader>
                 <TableRow>
                     <TableHead className="w-12 text-right">#</TableHead>
-                    <TableHead>{translate("Назва поля")}</TableHead>
-                    <TableHead className="w-16">{translate("Код")}</TableHead>
-                    <TableHead>{translate("Тип")}</TableHead>
-                    <TableHead className="w-24 text-right">{translate("Довжина")}</TableHead>
-                    <TableHead className="w-28 text-right">{translate("Знаків після коми")}</TableHead>
-                    <TableHead className="w-24 text-right">{translate("Зміщення")}</TableHead>
+                    <TableHead>{translate("Field name")}</TableHead>
+                    <TableHead className="w-16">{translate("Code")}</TableHead>
+                    <TableHead>{translate("Type")}</TableHead>
+                    <TableHead className="w-24 text-right">{translate("Length")}</TableHead>
+                    <TableHead className="w-28 text-right">{translate("Decimal places")}</TableHead>
+                    <TableHead className="w-24 text-right">{translate("Offset")}</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -27,8 +27,8 @@ export function FieldSchemaTable({ fields }: FieldSchemaTableProps){
                         <TableCell className="text-right tabular-nums text-muted-foreground">{i + 1}</TableCell>
                         <TableCell className="font-medium">
                             {f.name}
-                            {f.system && <span className="ml-2 text-xs font-normal">{translate("службове поле, не експортується")}</span>}
-                            {f.nullable && <span className="ml-2 text-xs font-normal text-sky-700 dark:text-sky-300">{translate("допускає NULL")}</span>}
+                            {f.system && <span className="ml-2 text-xs font-normal">{translate("system field, not exported")}</span>}
+                            {f.nullable && <span className="ml-2 text-xs font-normal text-sky-700 dark:text-sky-300">{translate("allows NULL")}</span>}
                         </TableCell>
                         <TableCell><FieldTypeBadge type={f.type} /></TableCell>
                         <TableCell>{FIELD_TYPE_LABELS[f.type]}</TableCell>

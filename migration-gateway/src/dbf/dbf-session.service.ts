@@ -87,9 +87,9 @@ export class DbfSessionService implements OnModuleInit {
         const session = this.getSession(dto.sessionId)
 
         if(!session.files.has(dto.sourceFile))
-            throw new NotFoundException(`Файлу немає в сесії: ${dto.sourceFile}`)
+            throw new NotFoundException(`File is not in the session: ${dto.sourceFile}`)
         if(!session.files.has(dto.targetFile))
-            throw new NotFoundException(`Файлу немає в сесії: ${dto.targetFile}`)
+            throw new NotFoundException(`File is not in the session: ${dto.targetFile}`)
 
         const rel: ManualRelationship = {
             kind: 'manual',
@@ -100,7 +100,7 @@ export class DbfSessionService implements OnModuleInit {
             label: dto.label
         }
         if(session.manualRels.some(r => relationshipId(r) === relationshipId(rel)))
-            throw new BadRequestException('Такий зв\'язок уже існує')
+            throw new BadRequestException("This relationship already exists")
 
         return this.save({ ...session, manualRels: [...session.manualRels, rel] })
     }
@@ -119,7 +119,7 @@ export class DbfSessionService implements OnModuleInit {
         const session = this.getSession(id)
         const manualRels = session.manualRels.filter(r => relationshipId(r) !== relId)
         if(manualRels.length === session.manualRels.length)
-            throw new NotFoundException('Ручний зв\'язок не знайдено — знайдені автоматично зв\'язки можна вимкнути, але не видалити')
+            throw new NotFoundException("Manual relationship not found; detected relationships can be disabled but cannot be deleted")
         const disabledRels = new Set(session.disabledRels)
         disabledRels.delete(relId)
         return this.save({ ...session, manualRels, disabledRels })
@@ -129,7 +129,7 @@ export class DbfSessionService implements OnModuleInit {
     setFileEncoding(id: SessionId, fileName: FileName, encoding: string | null): DbfSession {
         const session = this.getSession(id)
         const source = session.sources.get(fileName)
-        if(!source) throw new NotFoundException(`Файлу немає в сесії: ${fileName}`)
+        if(!source) throw new NotFoundException(`File is not in the session: ${fileName}`)
 
         const result = parseTable(fileName, source.dbf, source.memo, source.index, session.previewRows, encoding)
         const files = new Map(session.files)
@@ -213,7 +213,7 @@ export class DbfSessionService implements OnModuleInit {
     }
 
     private restore(id: SessionId): DbfSession {
-        const gone = new NotFoundException(`Сесію не знайдено: ${id} — можливо, вона застаріла; завантажте файли знову`)
+        const gone = new NotFoundException(`Session not found: ${id}; it may have expired. Upload the files again.`)
         if(!SESSION_ID.test(id)) throw gone
 
         const metaPath = path.join(sessionDir(id), META_FILE)

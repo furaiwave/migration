@@ -16,7 +16,7 @@ fs.mkdirSync(cache, { recursive: true });
 const profile = fs.mkdtempSync(path.join(cache, 'i18n-browser-'));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const codes = ['uk', 'en', 'fr', 'es', 'pl', 'ja', 'ko', 'de', 'sv', 'it'];
-const rawValue = 'Клієнт 客户 {0}';
+const rawValue = '\u041a\u043b\u0456\u0454\u043d\u0442 \u5ba2\u6237 {0}';
 const graph = { relationships: [], stats: { autoName: 0, autoFk: 0, manual: 0, total: 0, disabled: 0 } };
 const session = { sessionId: 'i18n-smoke', graph, files: [{
   fileName: 'CLIENTS.dbf',
@@ -98,7 +98,7 @@ async function main() {
         if (request.url.endsWith('/native/catalog') && request.method === 'POST') { const body=JSON.parse(request.postData); data={serverVersion:body.engine+'-test',databases:['archive_db','legacy_db'],connector:'rust',elapsedMs:12}; }
         if (request.url.endsWith('/native/diagnose') && request.method === 'POST') { const body=JSON.parse(request.postData); data={host:body.host,port:body.port,status:'reachable',elapsedMs:7,resolvedAddresses:['127.0.0.1']}; }
         if (request.url.endsWith('/native/test-connection') && request.method === 'POST') { const body = JSON.parse(request.postData); data = { serverVersion: body.engine + '-test', databases: ['legacy_db'], connector: 'rust' }; }
-        if (request.url.includes('/redis/plan')) data = {prefix:'dbf', tables:[{fileName:'CLIENTS.dbf',table:'clients',deletedTable:null,rowCount:1,deletedRows:0,keyMode:'record',columns:[{name:'name',kind:'text'}]}],warnings:[],quality:[]};
+        if (request.url.includes('/redis/plan')) data = {prefix:'data', tables:[{fileName:'CLIENTS.dbf',table:'clients',deletedTable:null,rowCount:1,deletedRows:0,keyMode:'record',columns:[{name:'name',kind:'text'}]}],warnings:[],quality:[]};
         if (request.url.includes('/redis/import')) {
           const running=request.method==='POST'; if(running)redisPayloads.push(JSON.parse(request.postData));
           data={jobId:'redis-job',database:'0',state:running?'running':'done',progress:{phase:'records',table:'clients',tableIndex:1,tableCount:1,tableRowsDone:running?0:1,rowsDone:running?0:1,rowsTotal:1,elapsedMs:500},...(!running?{result:{tables:[{fileName:'CLIENTS.dbf',table:'clients',expectedRows:1,importedRows:1,skippedRows:0}],warnings:[],durationMs:500}}:{})};
@@ -152,9 +152,14 @@ async function main() {
     };
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
     await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: "localStorage.setItem('dbf-inspector:language','uk'); Object.defineProperty(navigator,'languages',{get:()=>['uk-UA']}); Object.defineProperty(navigator,'language',{get:()=>'uk-UA'});" });
     await send('Page.navigate', { url });
     await waitFor("document.querySelector('select')?.options.length === 10");
     assert.deepEqual(await evaluate("Array.from(document.querySelector('select').options, (option) => option.value)"), codes);
+    assert.equal(await evaluate('document.documentElement.lang'), 'en', 'English is used without a language selection');
+    assert.equal(await evaluate("(() => { const page = document.body.cloneNode(true); page.querySelector('header select')?.remove(); return !/[\\u0400-\\u04ff]/.test(page.textContent); })()"), true, 'default interface is English outside native language names');
+    assert.equal(await evaluate('document.title'), 'Data Migrator');
+    assert.doesNotMatch(await evaluate('document.body.innerText'), /dbf/i, 'public names are format-neutral');
     await choose('en');
     if (process.env.WEB_TEST_CLOUD === '1') {
       assert.ok((await evaluate('document.body.innerText')).includes('Discovery and connections run on the cloud server.'));
@@ -211,12 +216,12 @@ async function main() {
       "input.dispatchEvent(new Event('input', { bubbles: true })); })()");
     for (const code of codes) {
       await choose(code);
-      const source = 'Вибрати файли';
-      assert.equal(await evaluate('document.body.innerText.includes(' + JSON.stringify(code === 'uk' ? source : catalog[source][code]) + ')'), true);
+      const source = "Choose files";
+      assert.equal(await evaluate('document.body.innerText.includes(' + JSON.stringify(catalog[source][code]) + ')'), true);
       assert.equal(await evaluate("document.querySelector('#previewRows').value"), '37', code + ': preview setting retained');
       assert.equal(await evaluate("document.body.innerText.includes('CLIENTS.dbf')"), true, code + ': files retained');
-      const notice = 'Пропущено {0} {1}: ';
-      const prefix = (code === 'uk' ? notice : catalog[notice][code]).split('{')[0];
+      const notice = "Skipped {0} {1}: ";
+      const prefix = (catalog[notice][code]).split('{')[0];
       assert.equal(await evaluate('document.body.innerText.includes(' + JSON.stringify(prefix) + ')'), true, code + ': notice updated');
     }
     console.log('PASS: ten languages; file selection, preview setting and translated notices retained.');
@@ -248,8 +253,8 @@ async function main() {
     for (const code of codes) {
       await choose(code);
       assert.equal(await evaluate('document.body.innerText.includes(' + JSON.stringify(rawValue) + ')'), true, code + ': data unchanged');
-      const source = "Зв'язки";
-      assert.equal(await evaluate('document.body.innerText.includes(' + JSON.stringify(code === 'uk' ? source : catalog[source][code]) + ')'), true, code + ': session labels');
+      const source = "Relationships";
+      assert.equal(await evaluate('document.body.innerText.includes(' + JSON.stringify(catalog[source][code]) + ')'), true, code + ': session labels');
       assert.equal(await evaluate("localStorage.getItem('dbf-inspector:last-session')"), 'i18n-smoke');
     }
     await choose('en');
@@ -269,7 +274,7 @@ async function main() {
     await waitFor('('+redisPanel+').innerText.includes("redis-test")');
     await evaluate("Array.from(("+redisPanel+").querySelectorAll('button')).find(b=>b.textContent.includes('→')).click()");
     await waitFor('('+redisPanel+').innerText.includes("Written: 1; skipped: 0.")');
-    assert.equal(redisPayloads.length,1);assert.equal(redisPayloads[0].uri,'redis://localhost:6379/0');assert.equal(redisPayloads[0].prefix,'dbf');assert.equal(redisPayloads[0].writeMode,'new');
+    assert.equal(redisPayloads.length,1);assert.equal(redisPayloads[0].uri,'redis://localhost:6379/0');assert.equal(redisPayloads[0].prefix,'data');assert.equal(redisPayloads[0].writeMode,'new');
     assert.equal((await evaluate("localStorage.getItem('dbf-inspector:native-target') || ''")).includes('redis://'),false);
     console.log('PASS: Redis hash plan, Rust connection test, import polling and written/skipped result.');
     for (const dialect of ['postgres', 'mssql']) {
@@ -323,7 +328,7 @@ async function main() {
     console.log('PASS: active session and data view retained; Japanese language and session restored after reload.');
     assert.equal(await evaluate(isDark), true, 'dark theme restored after reload');
     assert.equal(await evaluate('document.documentElement.style.colorScheme'), 'dark');
-    await clickTheme(catalog['Світла тема'].ja);
+    await clickTheme(catalog["Light theme"].ja);
     await waitFor('!' + isDark);
     await send('Page.reload');
     await waitFor("document.querySelector('select')?.value === 'ja' && document.body.innerText.includes('CLIENTS.dbf')");

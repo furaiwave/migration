@@ -1,92 +1,92 @@
-# Возможности Rust-модуля
+# Rust module capabilities
 
-Модуль: native/db-connector. Он поставляется с Electron-приложением как отдельный исполняемый файл. Установка Rust на компьютер конечного пользователя не требуется.
+Module: native/db-connector. It ships with the Electron application as a separate executable. End users do not need Rust installed.
 
-## Новые функции
+## New features
 
-### Диагностика DNS и TCP
+### DNS and TCP diagnostics
 
-Команда diagnose проверяет один указанный сервер без логина и пароля и без SQL-запросов. В панели выбранного сервера доступна кнопка «Діагностика мережі».
+The diagnose command checks one specified server without a username, password or SQL queries. The selected server panel provides a **Network diagnostics** button.
 
-Ответ содержит статус, время проверки elapsedMs и разрешённые IP-адреса resolvedAddresses:
+The response contains a status, elapsedMs and resolvedAddresses:
 
-| Статус | Значение |
+| Status | Meaning |
 | --- | --- |
-| reachable | TCP-порт принимает соединение |
-| refused | Соединение отклонено |
-| timeout | Истёк срок TCP-подключения |
-| unreachable | Сетевая ошибка или недоступный маршрут |
-| dnsError | Имя сервера не удалось разрешить |
-| dnsTimeout | Истёк срок DNS-поиска |
+| reachable | The TCP port accepts connections |
+| refused | The connection was refused |
+| timeout | The TCP connection timed out |
+| unreachable | A network error occurred or no route is available |
+| dnsError | The hostname could not be resolved |
+| dnsTimeout | DNS lookup timed out |
 
-DNS-поиск ограничен двумя секундами, TCP-проверка каждого адреса — тремя. Проверяются до восьми уникальных IPv4/IPv6-адресов параллельно; успешный адрес завершает проверку. Открытый порт не подтверждает тип СУБД, пароль или права на импорт.
+DNS lookup is limited to two seconds and each TCP address check to three seconds. Up to eight unique IPv4/IPv6 addresses are checked concurrently; the first successful address completes the operation. An open port does not verify the database engine, password or import permissions.
 
-Пример JSON-запроса в stdin Rust-модуля:
+Example JSON request sent to the Rust module's stdin:
 
 ~~~json
 {"command":"diagnose","endpoint":{"host":"127.0.0.1","port":5432}}
 ~~~
 
-API приложения: POST /dbf/native/diagnose. Тело: {"host":"127.0.0.1","port":5432}.
+Application API: POST /dbf/native/diagnose. Body: {"host":"127.0.0.1","port":5432}.
 
-### Список баз до выбора базы назначения
+### Database catalog before choosing a destination
 
-Команда catalog подключается с указанными учётными данными и запрашивает доступные имена баз. В формах PostgreSQL и MSSQL кнопка «Завантажити список баз» работает без заполненной базы назначения. Полученные имена появляются в выпадающем списке; автоматического выбора базы для импорта нет.
+The catalog command connects with the supplied credentials and requests accessible database names. In the PostgreSQL and MSSQL forms, **Load database list** works before a destination database is filled in. Returned names appear in a selector; no database is automatically chosen for import.
 
-Если база не указана, для первоначального подключения PostgreSQL используется postgres, для MSSQL — master. Если у пользователя нет доступа к этой служебной базе или она отсутствует, укажите известную доступную базу вручную и повторите запрос.
+If no database is specified, PostgreSQL initially connects to postgres and MSSQL to master. If that database is unavailable or the user lacks access, enter a known accessible database manually and retry.
 
-Команда также поддерживает MySQL/MariaDB и MongoDB через API. Имена сортируются, дубликаты и пустые строки удаляются. При недостатке прав на перечисление список может содержать только базу, к которой удалось подключиться; полный список не гарантируется.
+The API also supports MySQL/MariaDB and MongoDB. Names are sorted, duplicates and empty names are removed. If listing permissions are limited, the result may contain only the database used for the connection; a complete catalog is not guaranteed.
 
 ~~~json
 {"command":"catalog","connection":{"engine":"postgres","host":"localhost","port":5432,"user":"postgres","password":"<password>","encrypt":true,"trustServerCertificate":false}}
 ~~~
 
-API: POST /dbf/native/catalog, тело — объект connection без внешней оболочки. Для MongoDB передаются engine: mongo и uri вместо реквизитов SQL-сервера.
+API: POST /dbf/native/catalog. The body is the connection object without an outer wrapper. For MongoDB, supply engine: mongo and uri instead of SQL server credentials.
 
-### Просмотр структуры базы назначения
+### Destination structure inspection
 
-Команда inspect читает метаданные выбранной базы. В каждой форме импорта есть панель «Структура бази призначення» с кнопкой «Переглянути структуру». Для SQL-баз сначала укажите существующую базу назначения.
+The inspect command reads metadata from the selected database. Each import form includes a **Destination database structure** panel with an **Inspect structure** button. For SQL engines, specify an existing destination database first.
 
-- PostgreSQL, MySQL/MariaDB и MSSQL: схемы, таблицы, представления, имена колонок, типы, допустимость NULL и порядок колонок.
-- MongoDB: имена коллекций и представлений. Документы не читаются, их поля не угадываются. Используется явно указанная база, база из URI или admin, если имя отсутствует.
-- В PostgreSQL и MSSQL отображаются имена базовых типов без всех параметров, индексов, внешних ключей и ограничений; это обзор метаданных, а не готовый DDL.
-- Показаны только метаданные, доступные текущему пользователю. Отсутствие объекта в отчёте не доказывает, что его нет в базе.
+- PostgreSQL, MySQL/MariaDB and MSSQL: schemas, tables, views, column names, data types, nullability and column order.
+- MongoDB: collection and view names. Documents are not read and fields are not inferred. It uses the explicitly specified database, the URI database or admin when no name is supplied.
+- PostgreSQL and MSSQL show base type names without every parameter, index, foreign key or constraint. This is a metadata overview rather than executable DDL.
+- Only metadata visible to the current user is returned. An object missing from the report is not proof that it does not exist.
 
-Отчёт содержит engine, database, elapsedMs, objects и truncated. В objects каждая колонка имеет name, dataType, nullable и ordinal. Данные таблиц, значения документов, пароли и URI в отчёт не включаются.
+The report includes engine, database, elapsedMs, objects and truncated. Each column in objects has name, dataType, nullable and ordinal. Table rows, document values, passwords and URIs are not included.
 
-Пределы: 200 объектов, 2000 строк метаданных и до 768 000 байт JSON-массива объектов. Если лимит достигнут, truncated=true; последняя таблица может иметь неполный список колонок. Интерфейс показывает предупреждение. Операция ограничена 12 секундами. Автоматического импорта, изменения структуры или чтения строк нет.
+Limits are 200 objects, 2000 metadata rows and 768,000 bytes for the objects JSON array. When a limit is reached, truncated=true and the last table may have an incomplete column list. The interface displays a warning. The operation is limited to 12 seconds. It does not automatically import data, modify structures or read table rows.
 
-Кнопка «Завантажити структуру .json» сохраняет текущий снимок в файл schema-<database>.json. При изменении реквизитов прежний отчёт скрывается. После изменения структуры на сервере запросите новый снимок кнопкой просмотра.
+**Download structure .json** saves the current snapshot as schema-<database>.json. Changing connection settings hides the previous report. Request a new snapshot after server-side schema changes.
 
 ~~~json
 {"command":"inspect","connection":{"engine":"postgres","host":"localhost","port":5432,"user":"postgres","password":"<password>","database":"legacy","encrypt":true,"trustServerCertificate":false}}
 ~~~
 
-API: POST /dbf/native/inspect, тело — объект connection. Для MongoDB можно передать engine: mongo, uri и необязательное database.
+API: POST /dbf/native/inspect. The body is the connection object. MongoDB accepts engine: mongo, uri and an optional database.
 
-Источники SQL-метаданных: [PostgreSQL information_schema](https://www.postgresql.org/docs/current/infoschema-columns.html), [MySQL information_schema](https://dev.mysql.com/doc/refman/8.4/en/information-schema-columns-table.html), каталоги sys.objects/sys.columns в MSSQL. Соединения используют те же Rust-настройки TLS и аутентификации, что test и catalog.
+SQL metadata sources: [PostgreSQL information_schema](https://www.postgresql.org/docs/current/infoschema-columns.html), [MySQL information_schema](https://dev.mysql.com/doc/refman/8.4/en/information-schema-columns-table.html) and MSSQL sys.objects/sys.columns. Connections use the same Rust TLS and authentication settings as test and catalog.
 
-### Измерение времени проверки
+### Connection check timing
 
-Ответы test, catalog и inspect включают elapsedMs — полное время проверки: подключение, TLS, аутентификация, чтение метаданных и завершение соединения. Это не чистый сетевой ping. В форме выбора базы время выводится рядом со списком.
+Responses from test, catalog and inspect include elapsedMs: total time for connection establishment, TLS, authentication, metadata retrieval and disconnection. This is not a pure network ping. The database selector shows the timing beside the returned names.
 
-## Уже существующие функции
+## Existing capabilities
 
-- Поиск локальных служб Windows, процессов СУБД, конфигураций и экземпляров SQL Server в реестре.
-- Поиск нестандартных портов по конфигурациям и PID; проверка loopback IPv4/IPv6.
-- Различение открытого TCP-порта и ответа по протоколу СУБД.
-- Настоящие подключения к MySQL/MariaDB, MongoDB, PostgreSQL и MSSQL через Rust-драйверы.
-- TLS и явная настройка доверия к сертификату сервера.
-- Выбор сервера до загрузки DBF; перенос адреса в форму будущего импорта.
-- Ограниченные по времени операции, проверка JSON-ответов и логирование без паролей.
+- Discovery of local Windows services, database processes, configuration files and SQL Server registry instances.
+- Detection of custom ports from configuration and process IDs; loopback IPv4/IPv6 checks.
+- Distinguishing an open TCP port from a database protocol response.
+- Authenticated MySQL/MariaDB, MongoDB, PostgreSQL and MSSQL connections through Rust drivers.
+- TLS and explicit server certificate trust settings.
+- Server selection before source upload, with the endpoint copied into the future import form.
+- Time-limited operations, JSON response validation and password-free logging.
 
-## Что не делает Rust
+## What Rust does not handle
 
-Перенос строк, создание таблиц и транзакции импорта по-прежнему выполняют существующие серверные сервисы. Новые команды не создают и не удаляют базы или таблицы. Поиск служб рассчитан прежде всего на Windows; автоматический поиск не разрешает Unix-сокеты, LocalDB named pipes и все варианты включаемых конфигураций. Для них остаётся ручной ввод TCP-адреса.
+Existing server services still transfer rows, create tables and manage import transactions. The new commands do not create or delete databases or tables. Service discovery primarily targets Windows. Automatic discovery does not resolve Unix sockets, LocalDB named pipes or every form of included configuration; enter a TCP address manually for those cases.
 
-Пароли передаются дочернему процессу через stdin, не через командную строку, файлы или журнал. Сохранённый выбор сервера содержит только несекретные параметры адреса. Диагностика и получение каталога не запускают импорт автоматически.
+Passwords go to the child process through stdin rather than command-line arguments, files or logs. Saved server selections contain only non-secret endpoint settings. Diagnostics and catalog retrieval do not start imports automatically.
 
-## Проверка из корня репозитория
+## Checks from the repository root
 
 ~~~powershell
 cargo test --locked --manifest-path native/db-connector/Cargo.toml
@@ -98,8 +98,8 @@ npm.cmd --prefix client run build
 npm.cmd --prefix desktop run build
 ~~~
 
-Полный браузерный сценарий: node client/scripts/smoke-i18n.cjs после сборки клиента. Проверки локальных TCP-сокетов не требуют установленной СУБД. Проверка реального входа в СУБД требует действительных учётных данных пользователя.
+For the complete browser scenario, run node client/scripts/smoke-i18n.cjs after building the client. Local TCP socket checks do not need an installed database server. Actual database authentication checks require valid user credentials.
 
 ## Redis
 
-Добавлен Redis в перечисление СУБД, обнаружение redis-server/valkey-server и локальных портов 6379/6380. Rust-драйвер поддерживает redis:// и rediss://, ACL/пароль, индекс базы, PING и необязательный INFO server. Каталог возвращает выбранный индекс, без сканирования ключей; SQL-инспектор к Redis не применяется. Сам перенос DBF выполняет серверный сервис через официальный node-redis. Подробности: [REDIS_IMPORT.md](REDIS_IMPORT.md).
+Redis is included in the engine list, with redis-server/valkey-server discovery and local port checks for 6379/6380. The Rust driver supports redis:// and rediss://, ACL/password authentication, database indexes, PING and optional INFO server. The catalog returns the selected index without scanning keys; the SQL inspector does not apply to Redis. source transfer runs in the server service using the official node-redis client. See [REDIS_IMPORT.md](REDIS_IMPORT.md).

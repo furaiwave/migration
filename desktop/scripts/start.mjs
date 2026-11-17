@@ -9,7 +9,7 @@ import electron from 'electron'
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 if (!fs.existsSync(path.join(desktop, 'app', 'server.cjs'))) {
-    console.error('Немає зібраного застосунку: спершу виконайте npm run build.')
+    console.error("Application build not found. Run npm run build first.")
     process.exit(1)
 }
 

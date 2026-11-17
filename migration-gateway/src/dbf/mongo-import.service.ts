@@ -27,13 +27,13 @@ const safeUri = (uri: string): string => uri.replace(/\/\/[^@/]*@/, '//***@')
 function describeMongoError(err: unknown, input: MongoConnectionInput): string {
     const e = err as { name?: string; code?: number; codeName?: string; message?: string }
     if (e.name === 'MongoParseError' || e.name === 'MongoInvalidArgumentError')
-        return `Некоректний рядок підключення: ${e.message ?? ''}`
+        return `Invalid connection string: ${e.message ?? ''}`
     if (e.name === 'MongoServerSelectionError' || e.name === 'MongoNetworkError' || e.name === 'MongoNetworkTimeoutError')
-        return `Не вдається підключитися до MongoDB (${safeUri(input.uri)}) — чи запущено сервер і чи правильна адреса?`
+        return `Cannot connect to MongoDB (${safeUri(input.uri)}). Check that the server is running and the address is correct.`
     if (e.code === 18 || e.codeName === 'AuthenticationFailed')
-        return 'MongoDB не прийняв логін або пароль з рядка підключення'
+        return "MongoDB rejected the username or password in the connection string"
     if (e.code === 13 || e.codeName === 'Unauthorized')
-        return `Користувачу MongoDB бракує прав: ${e.message ?? ''}`
+        return `The MongoDB user does not have sufficient permissions: ${e.message ?? ''}`
     return `MongoDB: ${e.message ?? String(err)}${e.codeName ? ` (${e.codeName})` : ''}`
 }
 
@@ -41,11 +41,11 @@ function hintFor(err: unknown, options: MongoExportOptions): string | null {
     const code = (err as { code?: number }).code
     if (code === 11000) {
         return options.writeMode === 'append'
-            ? 'Колекція вже містить документи з такими _id — виберіть «Замінити колекції» або «Синхронізувати» замість «Дописати документи».'
-            : 'У даних є повторювані значення в полі з унікальним індексом.'
+            ? "The collection already contains documents with these _id values. Choose \"Replace collections\" or \"Sync\" instead of \"Append documents\"."
+            : "The data contains duplicate values in a uniquely indexed field."
     }
     if (code === 85 || code === 86)
-        return 'Індекс із такою назвою вже є, але з іншими полями — виберіть «Замінити колекції» або видаліть його вручну.'
+        return "An index with this name already exists with different fields. Choose \"Replace collections\" or delete it manually."
     return null
 }
 
@@ -102,14 +102,14 @@ export class MongoImportService {
         input: MongoConnectionInput,
     ): Promise<MongoImportStatus> {
         if (!options.database)
-            throw new BadRequestException('Вкажіть назву бази даних для імпорту')
+            throw new BadRequestException("Specify the destination database name")
 
         const { plan, ops } = this.exportService.operations(session, relationships, options)
         const blocking = plan.quality.filter(q => q.effect === 'fail')
         if (blocking.length > 0) {
             const list = blocking.slice(0, 3).map(q => `${q.table}.${q.column}: ${q.problem}`).join('; ')
             throw new BadRequestException(
-                `Проблем у даних, через які MongoDB відхилить імпорт: ${blocking.length} — спершу виправте їх у плані (${list}${blocking.length > 3 ? '; …' : ''})`)
+                `Data issues that would cause MongoDB to reject the import: ${blocking.length}. Fix them in the plan first (${list}${blocking.length > 3 ? '; …' : ''})`)
         }
 
         const client = await this.connect(input)
@@ -144,14 +144,14 @@ export class MongoImportService {
 
     getStatus(jobId: string): MongoImportStatus {
         const job = this.jobs.get(jobId)
-        if (!job) throw new NotFoundException('Імпорт не знайдено — він завершився понад годину тому або бекенд перезапускався')
+        if (!job) throw new NotFoundException("Import not found; it finished over an hour ago or the backend was restarted")
         return this.statusOf(job)
     }
 
     /** Stops after the operation in flight; collections loaded so far stay in MongoDB. */
     cancel(jobId: string): MongoImportStatus {
         const job = this.jobs.get(jobId)
-        if (!job) throw new NotFoundException('Імпорт не знайдено')
+        if (!job) throw new NotFoundException("Import not found")
         if (job.state === 'running') job.cancelRequested = true
         return this.statusOf(job)
     }
@@ -240,15 +240,15 @@ export class MongoImportService {
             this.logger.log(`Imported session ${sessionId} into ${safeUri(input.uri)}/${job.database} (${options.writeMode}) in ${job.result.durationMs} ms`)
         } catch (err) {
             const partial = p.phase === 'collections' && p.collection && !done.includes(p.collection) && p.collectionRowsDone > 0
-                ? ` Колекцію "${p.collection}" завантажено частково (${p.collectionRowsDone.toLocaleString('uk-UA')} з ${p.collectionRows.toLocaleString('uk-UA')} документів).`
+                ? ` Collection "${p.collection}" was partially imported (${p.collectionRowsDone.toLocaleString('en-US')} of ${p.collectionRows.toLocaleString('en-US')} documents).`
                 : ''
-            const kept = (done.length > 0 ? ` Уже завантажені колекції залишаються в "${job.database}": ${done.join(', ')}.` : '') + partial
+            const kept = (done.length > 0 ? ` Previously imported collections remain in "${job.database}": ${done.join(', ')}.` : '') + partial
             if (err instanceof ImportCancelled) {
                 job.state = 'cancelled'
-                job.error = `Імпорт скасовано.${kept}`
+                job.error = `Import cancelled.${kept}`
             } else {
                 const hint = hintFor(err, options)
-                const where = p.phase === 'indexes' ? ' Збій під час створення індексів.' : p.collection ? ` Збій на колекції "${p.collection}".` : ''
+                const where = p.phase === 'indexes' ? " Failed while creating indexes." : p.collection ? ` Failed on collection "${p.collection}".` : ''
                 job.state = 'failed'
                 job.error = `${describeMongoError(err, input)}.${where}${hint ? ` ${hint}` : ''}${kept}`
             }

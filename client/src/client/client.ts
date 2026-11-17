@@ -1,3 +1,5 @@
+import { operationLabel } from '@/lib/operationLabel';
+import type { MigrationConnection, MigrationObject, MigrationPlanRequest, MigrationPlan, MigrationStatus } from '@/api/migration.types';
 import type { RedisOptions, RedisPlan, RedisImportStatus } from '@/api/api.types';
 import { readApiBody } from '@/lib/responseBody';
 import type { NativeSchema } from '@/api/api.types';
@@ -30,6 +32,11 @@ export const CLOUD_APP = import.meta.env.VITE_DEPLOYMENT === 'cloud'
 export const BUNDLED_APP = API_BASE === '' && !CLOUD_APP
 
 export interface ApiRoutes {
+    'POST /dbf/migration/catalog': { body: MigrationConnection; response: { objects: MigrationObject[] } }
+    'POST /dbf/migration/plan': { body: MigrationPlanRequest; response: MigrationPlan }
+    'POST /dbf/migration/plan/:id/start': { body: never; response: MigrationStatus }
+    'GET /dbf/migration/jobs/:id': { body: never; response: MigrationStatus }
+    'DELETE /dbf/migration/jobs/:id': { body: never; response: MigrationStatus }
     'POST /dbf/session/:id/redis/plan': { body: RedisOptions; response: RedisPlan }
     'POST /dbf/session/:id/redis/import': { body: RedisOptions & { uri: string }; response: RedisImportStatus }
     'GET /dbf/redis/import/:jobId': { body: never; response: RedisImportStatus }
@@ -159,7 +166,7 @@ export class ApiError extends Error {
 /** fetch failed: connection, browser policy, or a local upload read error. */
 export class BackendUnreachableError extends LocalizedError {
     constructor(readonly baseUrl: string, cause: unknown) {
-        super("Не вдалося виконати запит до {0}. Причиною може бути з’єднання, блокування браузером або зміна вибраних файлів. Перевірте помилку запиту у F12 → Console та Network.", [baseUrl], { cause })
+        super("Could not reach {0}. Check the connection, browser restrictions, or changed source files. See F12 → Console and Network for details.", [baseUrl], { cause })
         this.name = 'BackendUnreachableError'
     }
 }
@@ -212,26 +219,28 @@ async function performRequest<R extends ApiRoute>(
 
 // Record operation boundaries without logging connection bodies, passwords, or URIs.
 export async function apiRequest<R extends ApiRoute>(route: R, args: RequestArgs<R> = {}): Promise<ResponseOf<R>> {
-    const polling = route.startsWith('GET ') && route.includes('/import/');
+    const operation = operationLabel(route);
+    const migration = route.startsWith('POST /dbf/migration/') || route.includes(' /dbf/migration/');
+    const polling = route.startsWith('GET ') && (route.includes('/import/') || route.includes('/migration/jobs/'));
     const tracked = !route.startsWith('GET ') || polling;
     const params = args.params as Record<string, string> | undefined;
     const source = params?.fileName || params?.id || params?.jobId || 'application';
-    const type = route.includes('/redis/') ? 'REDIS' : route.includes('/native/') ? 'DB' : (route.includes('/mysql/') || route.includes('/sql/')) ? 'SQL' : route.includes('/mongo/') ? 'JS' : 'DBF';
+    const type = migration ? 'DB' : route.includes('/redis/') ? 'REDIS' : route.includes('/native/') ? 'DB' : (route.includes('/mysql/') || route.includes('/sql/')) ? 'SQL' : route.includes('/mongo/') ? 'JS' : "TABLE";
     if (tracked && !polling) {
         if (args.body instanceof FormData) {
             for (const file of args.body.getAll('files')) if (file instanceof File)
-                logActivity(file.name.split('.').pop()?.toUpperCase() || 'FILE', file.name, 'INFO', 'Uploading for parsing');
-        } else logActivity(type, source, 'INFO', route);
+                logActivity(/\.dbf$/i.test(file.name) ? 'TABLE' : file.name.split('.').pop()?.toUpperCase() || 'FILE', file.name, 'INFO', 'Uploading for parsing');
+        } else logActivity(type, source, 'INFO', operation);
     }
     try {
         const result = await performRequest(route, args);
         if (tracked) {
             observeResult(route, result, params?.id);
-            if (!polling && !(result && typeof result === 'object' && 'jobId' in result)) logActivity(type, source, 'DONE', route);
+            if (!polling && !(result && typeof result === 'object' && 'jobId' in result)) logActivity(type, source, 'DONE', operation);
         }
         return result;
     } catch (error) {
-        if (tracked) logActivity(type, source, 'ERROR', route + ': ' + (error instanceof ApiError ? 'HTTP ' + error.status : 'Request failed; see operation details'));
+        if (tracked) logActivity(type, source, 'ERROR', operation + ': ' + (error instanceof ApiError ? 'HTTP ' + error.status : 'Request failed; see operation details'));
         throw error;
     }
 }

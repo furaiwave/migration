@@ -38,7 +38,7 @@ export function webAccess(credentials: WebAccess) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader(
       'WWW-Authenticate',
-      'Basic realm="DBF Inspector", charset="UTF-8"',
+      "Basic realm=\"Data Migrator\", charset=\"UTF-8\"",
     );
     res
       .status(401)

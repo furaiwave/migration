@@ -48,34 +48,34 @@ export function WorkspaceOverview({
   const steps = [
     {
       number: "01",
-      label: translate("База даних"),
-      detail: translate("Необов’язково"),
+      label: translate("Database"),
+      detail: translate("Optional"),
       href: "#destination",
       enabled: true,
       done: !!server,
     },
     {
       number: "02",
-      label: translate("Джерело даних"),
+      label: translate("Source data"),
       detail: session
-        ? translate("Сесію відкрито")
-        : translate("Вибрати файли"),
+        ? translate("Session opened")
+        : translate("Choose files"),
       href: "#source",
       enabled: true,
       done: !!session,
     },
     {
       number: "03",
-      label: translate("Перевірка"),
-      detail: session ? translate("Зв'язки") : translate("Після завантаження"),
+      label: translate("Verification"),
+      detail: session ? translate("Relationships") : translate("After uploading"),
       href: "#review",
       enabled: !!session,
       done: false,
     },
     {
       number: "04",
-      label: translate("Перенесення"),
-      detail: session ? LABELS[engine] : translate("Після завантаження"),
+      label: translate("Transfer"),
+      detail: session ? LABELS[engine] : translate("After uploading"),
       href: "#transfer",
       enabled: !!session,
       done: false,
@@ -85,11 +85,11 @@ export function WorkspaceOverview({
     <div className="workspace-overview">
       <div className="workspace-intro">
         <div>
-          <p className="workspace-eyebrow">DBF / MIGRATION WORKSPACE</p>
-          <h2>{translate("Перенесення даних")}</h2>
+          <p className="workspace-eyebrow">Tables / MIGRATION WORKSPACE</p>
+          <h2>{translate("Data migration")}</h2>
           <p className="workspace-description">
             {translate(
-              "Додайте таблиці, перевірте дані й оберіть базу призначення.",
+              "Add tables, review the data and choose a destination database.",
             )}
           </p>
         </div>
@@ -102,13 +102,13 @@ export function WorkspaceOverview({
             }
           />
           {working
-            ? translate("Завантаження й читання…")
+            ? translate("Uploading and reading…")
             : session
-              ? translate("Сесію відкрито")
-              : translate("Очікує файлів")}
+              ? translate("Session opened")
+              : translate("Waiting for files")}
         </span>
       </div>
-      <nav className="workspace-steps" aria-label={translate("Порядок роботи")}>
+      <nav className="workspace-steps" aria-label={translate("Workflow")}>
         {steps.map((step) => (
           <a
             key={step.number}
@@ -138,27 +138,27 @@ export function WorkspaceOverview({
       {session && (
         <div
           className="workspace-metrics"
-          aria-label={translate("Підсумок сесії")}
+          aria-label={translate("Session summary")}
         >
           {[
             {
               icon: FileText,
-              label: translate("Таблиці DBF"),
+              label: translate("Tables"),
               value: format(session.files.length),
             },
             {
               icon: Rows3,
-              label: translate("Записів"),
+              label: translate("Records (count)"),
               value: format(records),
             },
             {
               icon: GitBranch,
-              label: translate("Активні зв’язки"),
+              label: translate("Active relationships"),
               value: format(links),
             },
             {
               icon: Database,
-              label: translate("СУБД призначення"),
+              label: translate("Destination DBMS"),
               value: LABELS[engine],
             },
           ].map((metric) => (

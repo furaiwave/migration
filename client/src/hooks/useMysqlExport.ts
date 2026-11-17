@@ -24,7 +24,7 @@ async function fetchPlan(input: MysqlExportInput): Promise<MysqlExportPlan> {
 /** Downloads the dump and hands it to the browser as a file; resolves with the file name. */
 async function downloadDump(input: MysqlExportInput): Promise<string> {
     const blob = await apiRequest('POST /dbf/session/:id/mysql/export', { params: { id: input.sessionId }, body: requestOptions(input.options) })
-    const fileName = `${input.options.database || 'dbf_export'}.sql`
+    const fileName = `${input.options.database || "data_export"}.sql`
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

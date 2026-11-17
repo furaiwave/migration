@@ -1,3 +1,6 @@
+import { MigrationController } from '../migration/migration.controller';
+import { MigrationService } from '../migration/migration.service';
+import { MigrationConnectors } from '../migration/connectors';
 import { RedisImportController } from './redis-import.controller';
 import { RedisImportService } from './redis-import.service';
 import { NativeConnectorController } from './native-connector.controller';
@@ -15,8 +18,8 @@ import { MongoExportService } from './mongo-export.service';
 import { MongoImportService } from './mongo-import.service';
 
 @Module({
-    controllers: [RedisImportController, DbfController, SqlImportController, NativeConnectorController],
-    providers: [
+    controllers: [MigrationController, RedisImportController, DbfController, SqlImportController, NativeConnectorController],
+    providers: [MigrationService, MigrationConnectors,
         RedisImportService,
         NativeConnectorService,
         SqlImportService,

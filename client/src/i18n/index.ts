@@ -15,9 +15,11 @@ export const LANGUAGES = [
 ] as const;
 
 export type Language = (typeof LANGUAGES)[number]['code'];
-const STORAGE_KEY = 'dbf-inspector:language';
+export const DEFAULT_LANGUAGE: Language = 'en';
+// Start existing installations in English too; later explicit language choices remain persistent.
+const STORAGE_KEY = 'dbf-inspector:language:v2';
 const listeners = new Set<() => void>();
-const messages: Readonly<Record<string, Readonly<Record<Exclude<Language, 'uk'>, string>>>> = catalog;
+const messages: Readonly<Record<string, Readonly<Record<Language, string>>>> = catalog;
 
 export function isLanguage(value: unknown): value is Language {
   return LANGUAGES.some(({ code }) => code === value);
@@ -30,15 +32,7 @@ function savedLanguage(): Language | null {
   } catch { return null; }
 }
 
-function browserLanguage(): Language {
-  for (const candidate of navigator.languages ?? [navigator.language]) {
-    const code = candidate.toLowerCase().split('-')[0];
-    if (isLanguage(code)) return code;
-  }
-  return 'uk';
-}
-
-let language: Language = savedLanguage() ?? browserLanguage();
+let language: Language = savedLanguage() ?? DEFAULT_LANGUAGE;
 document.documentElement.lang = language;
 export const getLanguage = (): Language => language;
 
@@ -56,7 +50,7 @@ export function setLanguage(next: Language): void {
 }
 
 window.addEventListener('storage', (event) => {
-  if (event.key === STORAGE_KEY || event.key === null) notify(savedLanguage() ?? browserLanguage());
+  if (event.key === STORAGE_KEY || event.key === null) notify(savedLanguage() ?? DEFAULT_LANGUAGE);
 });
 
 function subscribe(listener: () => void): () => void {
@@ -70,7 +64,7 @@ export function useLanguage(): Language {
 
 /** Translate UI messages only; placeholder values are left untouched. */
 export function translate(source: string, values: readonly unknown[] = []): string {
-  const message = language === 'uk' ? source : messages[source]?.[language] ?? source;
+  const message = messages[source]?.[language] ?? source;
   return message.replace(/\{(\d+)\}/g, (placeholder, number: string) =>
     Number(number) < values.length ? String(values[Number(number)]) : placeholder);
 }

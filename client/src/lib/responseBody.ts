@@ -5,5 +5,5 @@ export async function readApiBody(response: Response, download: boolean): Promis
   if ((response.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
     try { return await response.json(); } catch { /* A proxy can also return a malformed JSON body. */ }
   }
-  throw new LocalizedError('Неочікувана відповідь сервера. Перевірте налаштування API та проксі.');
+  throw new LocalizedError("Unexpected server response. Check the API and proxy configuration.");
 }

@@ -7,7 +7,7 @@ import type { DbfFieldDescriptor } from "../types/dbf-field.types";
 
 const KEY_MARKERS = ['code', 'key', 'kod', 'nom', 'id'] as const
 
-// ТАБ_НОМ and TAB_NOM name the same thing.
+// Cyrillic and Latin spellings of an employee number normalize to the same name.
 function normalizeName(s: string): string {
     return transliterate(s).replace(/[_\s-]/g, '')
 }
@@ -110,7 +110,7 @@ export class DbfRelationshipService {
             const base = fileName.replace(/\.dbf$/i, '')
             add(exact, normalizeName(base), fileName)
             // Singular aliases never replace an exact table name or resolve an ambiguity.
-            if (/[sыиі]$/i.test(base)) add(singular, normalizeName(base.slice(0, -1)), fileName)
+            if (/[s\u044b\u0438\u0456]$/i.test(base)) add(singular, normalizeName(base.slice(0, -1)), fileName)
         }
 
         for (const [sourceFile, result] of files) {

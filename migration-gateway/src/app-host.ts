@@ -36,7 +36,7 @@ function probePort(port: number, host: string): Promise<number | null> {
 export async function startApp(options: AppHostOptions): Promise<AppHost> {
   const host = options.host ?? '127.0.0.1'
   const port = (await probePort(options.preferredPort, host)) ?? (await probePort(0, host))
-  if (port === null) throw new Error('Не вдалося знайти вільний порт.')
+  if (port === null) throw new Error("Could not find an available port.")
 
   const url = `http://${host}:${port}`
   // The page and the API share one address; localhost is the same server under its other name.

@@ -1,3 +1,4 @@
+import { operationLabel } from '@/lib/operationLabel';
 import type { MysqlImportStatus, MongoImportStatus, ParseMultipleResult, MysqlExportPlan, MongoExportPlan } from '@/api/api.types';
 export interface LogEntry { time: string; type: string; source: string; level: 'INFO' | 'DONE' | 'WARNING' | 'ERROR'; message: string }
 const KEY = 'dbf-inspector:activity-log';
@@ -5,7 +6,7 @@ const LIMIT = 2000;
 function load(): LogEntry[] {
   try {
     const data: unknown = JSON.parse(localStorage.getItem(KEY) ?? '[]');
-    if (Array.isArray(data)) return data.filter((e): e is LogEntry => e && ['time','type','source','message'].every(k => typeof e[k] === 'string') && ['INFO','DONE','WARNING','ERROR'].includes(e.level)).slice(-LIMIT);
+    if (Array.isArray(data)) return data.filter((e): e is LogEntry => e && ['time','type','source','message'].every(k => typeof e[k] === 'string') && ['INFO','DONE','WARNING','ERROR'].includes(e.level)).slice(-LIMIT).map(entry => ({ ...entry, type: entry.type === 'DBF' ? 'TABLE' : entry.type, message: entry.message.replace(/^((?:GET|POST|PATCH|DELETE) \/dbf\/\S+?)(?=: |$)/, route => operationLabel(route)) }));
   } catch { /* Storage unavailable. */ }
   return [];
 }
@@ -47,8 +48,23 @@ export function observeResult(route: string, data: unknown, sessionId?: string) 
     if (map) for (const source of new Set(map.values())) logActivity(type, source, 'DONE', 'Export received');
   }
   if (!data || typeof data !== 'object') return;
+  if (route.includes(' /dbf/migration/')) {
+    if ('warnings' in data && Array.isArray(data.warnings) && route.endsWith('/plan'))
+      for (const warning of data.warnings) logActivity('DB', 'migration', 'WARNING', String(warning));
+    if ('state' in data && 'id' in data && 'written' in data) {
+      const job = data as import('@/api/migration.types').MigrationStatus;
+      const signature = [job.state, job.object, job.read, job.written, job.skipped].join(':');
+      if (jobs.get(job.id) !== signature) {
+        jobs.set(job.id, signature);
+        if (jobs.size > 100) jobs.delete(jobs.keys().next().value!);
+        logActivity('DB', job.object ?? 'migration', job.state === 'done' ? 'DONE' : job.state === 'failed' ? 'ERROR' : job.state === 'cancelled' ? 'WARNING' : 'INFO',
+          job.state + '; read ' + job.read + '; written ' + job.written + '; skipped ' + job.skipped);
+      }
+    }
+    return;
+  }
   if (route === 'POST /dbf/parse-multiple') for (const f of (data as ParseMultipleResult).files) {
-    logActivity('DBF', f.fileName, 'DONE', 'Read ' + f.totalRecords + ' records; encoding ' + f.encoding);
+    logActivity("TABLE", f.fileName, 'DONE', 'Read ' + f.totalRecords + ' records; encoding ' + f.encoding);
     if (f.memoFile) logActivity(f.memoFile.split('.').pop()!.toUpperCase(), f.memoFile, 'DONE', 'Memo attached to ' + f.fileName);
     if (f.index) logActivity('CDX', f.index.fileName, f.index.error ? 'WARNING' : 'DONE', f.index.error ?? 'Index read');
   }
@@ -60,11 +76,11 @@ export function observeResult(route: string, data: unknown, sessionId?: string) 
       if (!t.excluded) map.set(name, t.fileName);
       const deleted = 'deletedTable' in t ? t.deletedTable : t.deletedCollection;
       if (deleted && !t.excluded) map.set(deleted, t.fileName);
-      logActivity('DBF', t.fileName, t.excluded ? 'WARNING' : 'INFO', t.excluded ? 'Excluded from export' : 'Planned conversion to ' + name);
+      logActivity("TABLE", t.fileName, t.excluded ? 'WARNING' : 'INFO', t.excluded ? 'Excluded from export' : 'Planned conversion to ' + name);
     }
     if (sessionId) { if (sources.size >= 30) sources.delete(sources.keys().next().value!); sources.set(sessionId, map); }
-    for (const w of plan.warnings) logActivity('DBF', sessionId ?? 'plan', 'WARNING', w);
-    for (const q of plan.quality) logActivity('DBF', q.fileName, 'WARNING', q.column + ': ' + q.problem + ' (' + q.count + ')');
+    for (const w of plan.warnings) logActivity("TABLE", sessionId ?? 'plan', 'WARNING', w);
+    for (const q of plan.quality) logActivity("TABLE", q.fileName, 'WARNING', q.column + ': ' + q.problem + ' (' + q.count + ')');
   }
   if ('jobId' in data) {
     const job = data as MysqlImportStatus | MongoImportStatus;
@@ -82,7 +98,7 @@ export function observeResult(route: string, data: unknown, sessionId?: string) 
       [job.state, p.phase, name ?? '-', rows + ' records', 'total ' + p.rowsDone + '/' + p.rowsTotal].join('; '));
     if (job.result) {
       const result = job.result as NonNullable<MysqlImportStatus['result']> & NonNullable<MongoImportStatus['result']>;
-      for (const t of ((result.tables ?? result.collections ?? []) as readonly (NonNullable<MysqlImportStatus["result"]>["tables"][number] | NonNullable<MongoImportStatus["result"]>["collections"][number])[])) logActivity('DBF', t.fileName, 'DONE', 'Imported into ' + ('table' in t ? t.table : t.collection) + '; ' + t.importedRows + ' records' + ('skippedRows' in t ? '; ' + String(t.skippedRows) + ' skipped' : ''));
+      for (const t of ((result.tables ?? result.collections ?? []) as readonly (NonNullable<MysqlImportStatus["result"]>["tables"][number] | NonNullable<MongoImportStatus["result"]>["collections"][number])[])) logActivity("TABLE", t.fileName, 'DONE', 'Imported into ' + ('table' in t ? t.table : t.collection) + '; ' + t.importedRows + ' records' + ('skippedRows' in t ? '; ' + String(t.skippedRows) + ' skipped' : ''));
       for (const w of result.warnings) logActivity(type, job.database, 'WARNING', w);
     }
     // Detailed database errors can include credentials or source data. The operation panel displays them.

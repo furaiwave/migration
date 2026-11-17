@@ -18,7 +18,8 @@ function run(command, cwd, env = {}) {
     console.log(`\n> ${command}   (${path.relative(root, cwd)})`)
     const result = spawnSync(command, { cwd, shell: true, stdio: 'inherit', env: { ...process.env, ...env } })
     if (result.status !== 0) {
-        console.error(`\nКрок не вдався: ${command}`)
+        console.error(`
+Step failed: ${command}`)
         process.exit(result.status ?? 1)
     }
 }
@@ -65,4 +66,5 @@ await esbuild.build({
     ],
 })
 
-console.log(`\nГотово: ${path.relative(root, out)} (клієнт і server.cjs)`)
+console.log(`
+Done: ${path.relative(root, out)} (client and server.cjs)`)

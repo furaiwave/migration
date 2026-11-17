@@ -14,11 +14,11 @@ export type DbfFieldTypeCode =
     | '0' | '@' | 'O'
 
 export const FIELD_TYPE_LABELS = {
-    get C() { return translate("Символьний") }, get N() { return translate("Числовий") }, get F() { return translate("Дробовий (Float)") }, get D() { return translate("Дата") },
-    get T() { return translate("Дата й час") }, get L() { return translate("Логічний") }, M: 'Memo', B: 'Double',
-    G: 'General (OLE)', P: 'Picture', get Y() { return translate("Грошовий") }, get I() { return translate("Цілий") },
-    V: 'Varchar', Q: 'Varbinary', get '+'() { return translate("Автоінкремент") },
-    get '0'() { return translate("Прапорці NULL") }, get '@'() { return translate("Мітка часу") }, O: 'Double',
+    get C() { return translate("Character") }, get N() { return translate("Numeric") }, get F() { return translate("Float") }, get D() { return translate("Date") },
+    get T() { return translate("Date and time") }, get L() { return translate("Boolean") }, M: 'Memo', B: 'Double',
+    G: 'General (OLE)', P: 'Picture', get Y() { return translate("Currency") }, get I() { return translate("Integer") },
+    V: 'Varchar', Q: 'Varbinary', get '+'() { return translate("Auto increment") },
+    get '0'() { return translate("NULL flags") }, get '@'() { return translate("Timestamp") }, O: 'Double',
 } as const satisfies Record<DbfFieldTypeCode, string>
 
 export type FieldCategory = 'text' | 'number' | 'temporal' | 'boolean' | 'blob'

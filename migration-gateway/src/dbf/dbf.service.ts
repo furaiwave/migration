@@ -42,15 +42,15 @@ export class DbfService {
     ) : ParseMultipleResult {
         const dbfFiles = files.filter(f => /\.dbf$/i.test(f.originalName))
         if(dbfFiles.length === 0)
-            throw new BadRequestException('Потрібен хоча б один файл .dbf')
+            throw new BadRequestException("At least one table file is required")
 
         if(dbfFiles.length > MAX_TABLES)
-            throw new BadRequestException(`Не більше ${MAX_TABLES} файлів .dbf в одній сесії`)
+            throw new BadRequestException(`A maximum of ${MAX_TABLES} table files is allowed per session`)
 
         const seenNames = new Set<string>()
         for(const f of dbfFiles){
             const name = f.originalName.toUpperCase()
-            if(seenNames.has(name)) throw new BadRequestException(`Дві таблиці мають назву ${name} — завантажте їх в окремих сесіях`)
+            if(seenNames.has(name)) throw new BadRequestException(`Two tables have the same name: ${name}. Upload them in separate sessions.`)
             seenNames.add(name)
         }
 
@@ -65,7 +65,7 @@ export class DbfService {
         const dbfBases = new Set(dbfFiles.map(f => baseName(f.originalName)))
         const orphans = [...memoByBase.entries(), ...indexByBase.entries()].filter(([base]) => !dbfBases.has(base)).map(([, m]) => m.fileName)
         if(orphans.length > 0)
-            throw new BadRequestException(`Немає відповідного .dbf для: ${orphans.join(', ')}`)
+            throw new BadRequestException(`No matching table file for: ${orphans.join(', ')}`)
 
         const named = dbfFiles.map(file => [
             toFileName(file.originalName.toUpperCase()),

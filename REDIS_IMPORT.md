@@ -1,49 +1,49 @@
-# Импорт DBF в Redis
+# Importing table files into Redis
 
-Redis поддерживает hashes — записи с набором полей. В списке «Экспорт в» выберите Redis. Каждый живой DBF-record переносится в отдельный hash. Внешние ключи, SQL-таблицы и индексы Redis не создаёт; значения связей сохраняются как обычные поля.
+Redis supports hashes: records containing named fields. Select Redis in **Export to**. Each active source record is written to a separate hash. Redis does not create foreign keys, SQL tables or indexes; relationship values are stored as ordinary fields.
 
-## Подключение и импорт
+## Connection and import
 
-1. Введите URI: redis://localhost:6379/0. Для ACL/пароля — redis://user:password@host:6379/0, для TLS — rediss://user:password@host:6380/0. Спецсимволы логина и пароля кодируются в URL. Индекс базы задаётся в пути URI, по умолчанию 0.
-2. Нажмите «Проверить соединение». Проверку выполняет Rust-драйвер, включая авторизацию и TLS. Сервер обязан ответить на PING. INFO server читается, если разрешён ACL; при отсутствии доступа достаточно успешного PING.
-3. Задайте префикс: латинские буквы, цифры, _ и -, от 1 до 64 символов. План показывает таблицы, колонки и формат ключей.
-4. Выберите режим, TTL и необходимость переноса удалённых записей, затем запустите импорт. Прогресс и результат отображаются в панели и журнале. URI и пароль не сохраняются в профиле сервера или журнале.
+1. Enter a URI such as redis://localhost:6379/0. Use redis://user:password@host:6379/0 for ACL/password authentication or rediss://user:password@host:6380/0 for TLS. URL-encode special characters in usernames and passwords. The URI path selects the database index, which defaults to 0.
+2. Click **Test connection**. The Rust driver checks authentication and TLS. The server must respond to PING. INFO server is read if ACL permissions allow it; otherwise a successful PING is sufficient.
+3. Set a prefix containing 1–64 Latin letters, digits, underscores or hyphens. The plan shows tables, columns and key formats.
+4. Choose a mode, TTL and whether to include deleted records, then start the import. Progress and results appear in the panel and log. The URI and password are not saved in the server profile or activity log.
 
-В облаке соединение идёт из контейнера/VPS. localhost относится к контейнеру приложения. Для удалённой СУБД используйте доступную серверу сеть/VPN; TLS включается схемой rediss:// с проверкой сертификата.
+In cloud mode, the connection originates from the container/VPS. localhost refers to the application container. For a remote database, use a network or VPN reachable from the server; rediss:// enables TLS with certificate verification.
 
-## Формат данных
+## Data format
 
-| Источник | Redis |
-|---|---|
-| Запись с первичным ключом | префикс:таблица:pk:SHA256(JSON-строки значения первичного ключа) |
-| Запись без первичного ключа | префикс:таблица:row:номер-записи-DBF |
-| Удалённая запись | префикс:таблица_deleted:row:номер-записи-DBF |
-| Поле с NULL | JSON null (строка из четырёх символов null) |
-| Любое другое поле | JSON-строка с точным каноническим значением |
+| Source | Redis |
+| --- | --- |
+| Record with a primary key | prefix:table:pk:SHA256(JSON string of the primary key value) |
+| Record without a primary key | prefix:table:row:source-record-number |
+| Deleted record | prefix:table_deleted:row:source-record-number |
+| NULL field | JSON null, stored as the four-character string null |
+| Any other field | A JSON string containing the exact canonical value |
 
-Пример: имя Alice хранится как JSON-строка `"Alice"`, пустой текст — `""`, число 9007199254740993 — `"9007199254740993"`. Прочитанное через HGET значение декодируется JSON.parse. Даты сохраняются текстом в каноническом формате, двоичные данные — текстом hex; тип поля виден в плане. Числа не округляются через JavaScript Number. Обрабатываются поля DBF, поддерживаемые существующим декодером; неподдерживаемые поля отмечаются в плане.
+For example, the name Alice is stored as the JSON string `"Alice"`, empty text as `""`, and the number 9007199254740993 as `"9007199254740993"`. Decode values returned by HGET with JSON.parse. Dates are canonical text and binary data is hexadecimal text; the plan shows each field type. Numbers are not rounded through JavaScript Number. The import handles source fields supported by the existing decoder; unsupported fields are identified in the plan.
 
-Первичный ключ берётся из подходящего одиночного candidate-тега CDX после проверки уникальности. Без такого тега используется номер записи.
+The primary key comes from a suitable single-field CDX candidate tag after uniqueness checks. Without such a tag, the record number is used.
 
-Номера записей относятся к исходному DBF и сохраняют пропуски удалённых строк. Если таблица не имеет первичного ключа, переупорядочивание или PACK в исходной системе меняет соответствие ключей. Удалённые записи всегда используют номер, чтобы повторяющийся старый первичный ключ не терял данные.
+Record numbers refer to the original source and retain gaps caused by deleted rows. For a table without a primary key, reordering or PACK in the source system changes key correspondence. Deleted records always use record numbers so repeated historical primary keys do not lose data.
 
-## Режимы и ограничения
+## Modes and limitations
 
-- Только новые ключи: любой существующий ключ пропускается без изменения значения и TTL. В результате отдельно показано число записанных и пропущенных записей.
-- Обновление hashes: изменяет импортируемые поля существующего hash, сохраняет прочие поля. Ключ другого типа не перезаписывается — импорт завершается ошибкой; выберите другой префикс.
-- TTL задаётся в секундах для всего записываемого ключа. Значение 0 снимает прежнее время истечения в режиме обновления; положительное значение устанавливает новое. Пропущенные ключи не меняются.
-- FLUSHDB, FLUSHALL, поиск/удаление посторонних ключей и удаление исчезнувших из DBF записей не выполняются. Выбирайте отдельный префикс для каждого независимого набора данных.
-- Lua-операция на одну запись изолирована от конкурентных команд. Весь импорт не является откатываемой транзакцией: при отмене/ошибке уже записанные данные остаются. При сетевом обрыве последний запрос мог выполниться, даже если подтверждение не получено.
-- Одна запись ограничена 1024 полями и 4 МиБ полей/значений. Одновременно допускаются два импорта Redis. Состояния задач хранятся час после завершения в памяти сервера.
-- Используется одиночный Redis endpoint. Подключение к Redis Cluster через cluster-aware driver и Sentinel пока не реализовано. Каталог Rust возвращает только выбранный индекс базы; просмотр SQL-структуры к Redis не применяется.
-- Нужны права PING, SELECT (для выбранной базы), EVAL и вызываемых скриптом TYPE, HSET, EXPIRE, PERSIST; клиент может отправлять CLIENT SETINFO, а INFO server необязателен. ACL должен разрешать нужный префикс. Серверы, запрещающие EVAL, этот режим не поддерживают.
+- **New keys only:** any existing key is skipped without changing its value or TTL. Written and skipped records are counted separately.
+- **Update hashes:** updates imported fields in an existing hash and preserves other fields. A key of another type is not overwritten; the import fails, and you should choose another prefix.
+- TTL is specified in seconds for the entire written key. In update mode, 0 removes an existing expiry and a positive value sets a new expiry. Skipped keys are unchanged.
+- The import does not run FLUSHDB or FLUSHALL, search for or delete unrelated keys, or delete records that disappeared from source. Use a separate prefix for each independent dataset.
+- Each record's Lua operation is isolated from concurrent commands. The entire import is not a rollback-capable transaction: records already written remain after an error or cancellation. If the connection breaks, the last request may have completed without its acknowledgement reaching the client.
+- Each record is limited to 1024 fields and 4 MiB of fields/values. Two Redis imports may run concurrently. Completed task states stay in server memory for one hour.
+- A single Redis endpoint is used. Redis Cluster through a cluster-aware driver and Sentinel are not implemented. The Rust catalog returns only the selected database index; SQL structure inspection does not apply to Redis.
+- Required permissions include PING, SELECT for the selected database, EVAL and the script's TYPE, HSET, EXPIRE and PERSIST commands. The client may send CLIENT SETINFO; INFO server is optional. ACL rules must allow the chosen prefix. This mode does not support servers that prohibit EVAL.
 
-Redis обычно держит данные в памяти. Их сохранность после перезапуска и при нехватке памяти зависит от persistence, eviction policy и настроек самого Redis. TTL также удаляет данные после истечения срока.
+Redis normally keeps data in memory. Durability across restarts or memory pressure depends on the server's persistence, eviction policy and other Redis settings. TTL also removes data when it expires.
 
-## Проверки
+## Verification
 
-Серверные тесты проверяют идентичность ключей, точность значений, NULL/пустую строку, TTL, пропуски, отмену и скрытие ошибок с секретами. Браузерная проверка включает пятый пункт списка СУБД, план, Rust-проверку подключения и завершение импорта.
+Server tests cover key identity, exact values, NULL versus empty strings, TTL, skipping, cancellation and secret-safe errors. The browser check covers Redis in the engine selector, plan review, Rust connection testing and import completion.
 
-Для интеграции с настоящим отдельным тестовым Redis: соберите migration-gateway, задайте REDIS_TEST_URL и запустите npm run test:redis в migration-gateway. Скрипт создаёт только случайный тестовый префикс и очищает только его известные ключи. Если задан DBF_CONNECTOR_BIN, дополнительно проверяется Rust-драйвер. В Cloud checks добавлен Redis 7 и проверка внутри Linux-образа. Локально Redis-сервер отсутствует; интеграционный тест с настоящим сервером здесь не запускался.
+To test against a real, dedicated Redis instance, build migration-gateway, set REDIS_TEST_URL and run npm run test:redis in migration-gateway. The script creates a random test prefix and cleans only its known test keys. If DBF_CONNECTOR_BIN is set, it also checks the Rust driver. Cloud checks include Redis 7 and verification inside the Linux image. No local Redis server was available in the development environment, so a real-server integration test was not run there.
 
-Источники: [Redis hashes](https://redis.io/docs/latest/develop/data-types/hashes/), [подключение node-redis](https://redis.io/docs/latest/develop/clients/nodejs/connect/), [Lua/EVAL](https://redis.io/docs/latest/commands/eval/).
+Sources: [Redis hashes](https://redis.io/docs/latest/develop/data-types/hashes/), [connecting with node-redis](https://redis.io/docs/latest/develop/clients/nodejs/connect/), [Lua/EVAL](https://redis.io/docs/latest/commands/eval/).

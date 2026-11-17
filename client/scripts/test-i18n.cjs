@@ -7,8 +7,8 @@ const ts = require('typescript');
 const catalog = require('../src/i18n/messages.json');
 const root = path.join(__dirname, '..');
 const languageCodes = ['uk', 'en', 'fr', 'es', 'pl', 'ja', 'ko', 'de', 'sv', 'it'];
-const key = 'dbf-inspector:language';
-const newSession = 'Нова сесія';
+const key = 'dbf-inspector:language:v2';
+const newSession = "New session";
 
 function load(file, globals, imports) {
   const source = readFileSync(path.join(root, file), 'utf8');
@@ -22,8 +22,9 @@ function load(file, globals, imports) {
   return module.exports;
 }
 
-function environment({ saved, languages = ['uk-UA'], blocked = false } = {}) {
+function environment({ saved, legacy, languages = ['uk-UA'], blocked = false } = {}) {
   const storage = new Map(saved === undefined ? [] : [[key, saved]]);
+  if (legacy !== undefined) storage.set('dbf-inspector:language', legacy);
   const document = { documentElement: { lang: '' } };
   const events = new Map();
   let notifications = 0;
@@ -50,10 +51,10 @@ function environment({ saved, languages = ['uk-UA'], blocked = false } = {}) {
 
 const placeholders = (text) => [...text.matchAll(/\{\d+\}/g)].map(([match]) => match).sort().join(',');
 
-test('every message has all nine translations with intact placeholders', () => {
+test('every English source key has all ten languages with intact placeholders', () => {
   assert.ok(Object.keys(catalog).length >= 419);
   for (const [source, values] of Object.entries(catalog)) {
-    assert.deepEqual(Object.keys(values).sort(), languageCodes.slice(1).sort());
+    assert.deepEqual(Object.keys(values).sort(), [...languageCodes].sort());
     for (const [code, text] of Object.entries(values)) {
       assert.equal(typeof text, 'string', code + ': ' + source);
       assert.ok(text.trim(), code + ': ' + source);
@@ -68,16 +69,16 @@ test('the selector offers exactly the ten requested languages', () => {
   for (const code of ['ru', 'zh', 'zh-CN', '', null, undefined]) assert.equal(i18n.isLanguage(code), false);
 });
 
-test('saved choice wins; regional browser locales resolve; unsupported choices fall back', () => {
+test('English is the default for every browser locale; explicit language choices persist', () => {
   assert.equal(environment({ saved: 'ja', languages: ['de-DE'] }).i18n.getLanguage(), 'ja');
-  assert.equal(environment({ languages: ['fr-CA'] }).i18n.getLanguage(), 'fr');
-  assert.equal(environment({ saved: 'ru', languages: ['zh-CN', 'pl-PL'] }).i18n.getLanguage(), 'pl');
-  assert.equal(environment({ saved: 'zh', languages: ['ru-RU', 'zh-CN'] }).i18n.getLanguage(), 'uk');
+  assert.equal(environment({ languages: ['fr-CA'] }).i18n.getLanguage(), 'en');
+  assert.equal(environment({ saved: 'ru', languages: ['zh-CN', 'pl-PL'] }).i18n.getLanguage(), 'en');
+  assert.equal(environment({ saved: 'zh', languages: ['ru-RU', 'zh-CN'] }).i18n.getLanguage(), 'en');
 });
 
 test('switching updates subscribers and document language, persists and survives reload', () => {
   const env = environment();
-  assert.equal(env.i18n.useLanguage(), 'uk');
+  assert.equal(env.i18n.useLanguage(), 'en');
   env.i18n.setLanguage('de');
   assert.equal(env.i18n.translate(newSession), 'Neue Sitzung');
   assert.equal(env.document.documentElement.lang, 'de');
@@ -96,7 +97,7 @@ test('switching updates subscribers and document language, persists and survives
 test('blocked storage still allows switching in memory', () => {
   const env = environment({ blocked: true });
   env.i18n.setLanguage('ko');
-  assert.equal(env.i18n.translate(newSession), '새 세션');
+  assert.equal(env.i18n.translate(newSession), '\uc0c8 \uc138\uc158');
   assert.equal(env.document.documentElement.lang, 'ko');
 });
 
@@ -107,19 +108,19 @@ test('other windows follow storage changes and recover from invalid values', () 
   assert.equal(env.i18n.getLanguage(), 'sv');
   env.storage.set(key, 'ru');
   env.events.get('storage')({ key });
-  assert.equal(env.i18n.getLanguage(), 'uk');
+  assert.equal(env.i18n.getLanguage(), 'en');
   env.storage.delete(key);
   env.events.get('storage')({ key: null });
-  assert.equal(env.i18n.getLanguage(), 'uk');
+  assert.equal(env.i18n.getLanguage(), 'en');
 });
 
 test('interpolation never translates filenames, database names or nested placeholder content', () => {
   const { i18n } = environment({ saved: 'ja' });
-  const data = '客户_Клиенты_{0}.dbf';
-  assert.equal(i18n.translate('Прибрати {0}', [data]), data + ' を削除');
+  const data = '\u5ba2\u6237_\u041a\u043b\u0438\u0435\u043d\u0442\u044b_{0}.dbf';
+  assert.equal(i18n.translate("Remove {0}", [data]), data + ' \u3092\u524a\u9664');
   assert.equal(i18n.translate('unknown input'), 'unknown input');
   i18n.setLanguage('uk');
-  assert.equal(i18n.translate('Прибрати {0}', [data]), 'Прибрати ' + data);
+  assert.equal(i18n.translate("Remove {0}", [data]), '\u041f\u0440\u0438\u0431\u0440\u0430\u0442\u0438 ' + data);
 });
 
 test('metadata and existing errors follow later language changes', () => {
@@ -127,7 +128,7 @@ test('metadata and existing errors follow later language changes', () => {
   const labels = env.load('src/api/api.types.ts').FIELD_TYPE_LABELS;
   const encodings = env.load('src/lib/encodings.ts').ENCODINGS;
   const cause = new Error('file locked');
-  const error = new env.i18n.LocalizedError('Прибрати {0}', ['DATA.dbf'], { cause });
+  const error = new env.i18n.LocalizedError("Remove {0}", ['DATA.dbf'], { cause });
   assert.equal(labels.D, 'Date');
   assert.equal(encodings[0].label, 'Automatic');
   assert.equal(error.message, 'Remove DATA.dbf');
@@ -152,7 +153,7 @@ test('plural forms match Ukrainian, Polish, English, French, Japanese and Korean
   }
 });
 
-test('all Cyrillic UI literals are covered by the translation catalog', () => {
+test('all UI translation calls use English keys present in the catalog', () => {
   function scan(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
@@ -160,8 +161,9 @@ test('all Cyrillic UI literals are covered by the translation catalog', () => {
       if (!/\.tsx?$/.test(file)) continue;
       const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
       function visit(node) {
-        if (ts.isStringLiteral(node) && /[\u0400-\u04ff]/.test(node.text)) {
-          assert.ok(Object.hasOwn(catalog, node.text), file + ': missing ' + node.text);
+        if (ts.isStringLiteral(node)) assert.doesNotMatch(node.text, /[\u0400-\u04ff]/, file + ': non-English source text');
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'translate' && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
+          assert.ok(Object.hasOwn(catalog, node.arguments[0].text), file + ': missing ' + node.arguments[0].text);
         }
         if (ts.isJsxText(node)) assert.ok(!/[\u0400-\u04ff]/.test(node.text), file + ': untranslated JSX');
         ts.forEachChild(node, visit);
@@ -170,4 +172,19 @@ test('all Cyrillic UI literals are covered by the translation catalog', () => {
     }
   }
   scan(path.join(root, 'src'));
+});
+
+test('existing installations start in English and keep native language names', () => {
+ const {i18n,document}=environment({legacy:'uk',languages:['uk-UA']});
+ assert.equal(i18n.getLanguage(),'en');assert.equal(document.documentElement.lang,'en');
+ assert.equal(i18n.LANGUAGES.find(item=>item.code==='uk').label,'\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430');
+ for(const[source,values]of Object.entries(catalog)) {assert.equal(i18n.translate(source),values.en);assert.doesNotMatch(values.en,/[\u0400-\u04ff]/);}
+});
+
+test('English context keys preserve Ukrainian count forms without exposing context in English', () => {
+ const {i18n}=environment();
+ assert.equal(i18n.translate('files (few)'),'files'); assert.equal(i18n.translate('files (many)'),'files');
+ i18n.setLanguage('uk');
+ assert.equal(i18n.translate('files (few)'),'\u0444\u0430\u0439\u043b\u0438');
+ assert.equal(i18n.translate('files (many)'),'\u0444\u0430\u0439\u043b\u0456\u0432');
 });

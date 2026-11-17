@@ -35,25 +35,25 @@ const DEFAULT_OPTIONS: MysqlExportOptions = {
 type Toggle = 'includeData' | 'foreignKeys' | 'indexes' | 'keepDeleted' | 'emptyStringsAsNull' | 'orphansAsNull'
 
 const TOGGLES: ReadonlyArray<{ key: Toggle; label: string; title?: string }> = [
-    { key: 'includeData', get label() { return translate("Включати дані (INSERT)") } },
-    { key: 'foreignKeys', get label() { return translate("Створювати зовнішні ключі") } },
-    { key: 'indexes', get label() { return translate("Створювати індекси з .CDX") } },
-    { key: 'keepDeleted', get label() { return translate("Зберігати видалені записи в <таблиця>_deleted") }, get title() { return translate("Інакше записи, позначені в DBF як видалені (*), пропускаються") } },
-    { key: 'emptyStringsAsNull', get label() { return translate("Порожній текст → NULL замість ''") } },
+    { key: 'includeData', get label() { return translate("Include data (INSERT)") } },
+    { key: 'foreignKeys', get label() { return translate("Create foreign keys") } },
+    { key: 'indexes', get label() { return translate("Create indexes from .CDX") } },
+    { key: 'keepDeleted', get label() { return translate("Keep deleted records in <table>_deleted") }, get title() { return translate("Otherwise, source records marked as deleted (*) are skipped") } },
+    { key: 'emptyStringsAsNull', get label() { return translate("Empty text → NULL instead of ''") } },
     {
         key: 'orphansAsNull',
-        get label() { return translate("Значення без відповідника → NULL") },
-        get title() { return translate("Посилання на запис, якого немає в батьківській таблиці (0 як «не вказано», видалений запис), записується як NULL — і зв'язок створюється. Інакше такий зв'язок пропускається.") },
+        get label() { return translate("Unmatched values → NULL") },
+        get title() { return translate("References missing from the parent table (such as 0 or a deleted record) become NULL, so the relationship can be created. Otherwise the relationship is skipped.") },
     },
 ]
 
 const WRITE_MODES: ReadonlyArray<{ value: MysqlWriteMode; label: string; hint: string }> = [
-    { value: 'replace', get label() { return translate("Замінити таблиці") }, get hint() { return translate("Наявні таблиці з такими самими назвами видаляються й створюються заново.") } },
-    { value: 'append', get label() { return translate("Дописати рядки") }, get hint() { return translate("Відсутні таблиці створюються; рядки додаються до наявних (з помилкою, якщо такі рядки вже є).") } },
+    { value: 'replace', get label() { return translate("Replace tables") }, get hint() { return translate("Existing tables with matching names are deleted and recreated.") } },
+    { value: 'append', get label() { return translate("Append rows") }, get hint() { return translate("Missing tables are created; rows are added to existing ones. Duplicate rows cause an error.") } },
     {
         value: 'sync',
-        get label() { return translate("Синхронізувати (нові та змінені рядки)") },
-        get hint() { return translate("Запускайте повторно, поки стара система ще працює: нові рядки вставляються, змінені оновлюються за первинним ключем, решта лишається як є. Таблиці без первинного ключа завантажуються заново.") },
+        get label() { return translate("Synchronize (new and changed rows)") },
+        get hint() { return translate("Repeat while the old system is running: insert new rows, update changed rows by primary key, keep the rest. Tables without a primary key are reloaded.") },
     },
 ]
 
@@ -102,7 +102,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
 
     const databaseValid = DATABASE_PATTERN.test(options.database ?? '')
     const blockingIssues = plan?.quality.filter((q) => q.effect === 'fail').length ?? 0
-    const fileName = `${options.database || 'dbf_export'}.sql`
+    const fileName = `${options.database || "data_export"}.sql`
 
     const download = () => {
         void dump.mutate({ sessionId, options }).catch(() => { /* surfaced via dump.state */ })
@@ -113,7 +113,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
             <div className="flex flex-col gap-4 border p-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="mysqlDatabase" className="text-xs text-muted-foreground">{translate("Назва бази даних (необов'язково)")}</Label>
+                        <Label htmlFor="mysqlDatabase" className="text-xs text-muted-foreground">{translate("Database name (optional)")}</Label>
                         <Input
                             id="mysqlDatabase"
                             placeholder="legacy_db"
@@ -124,7 +124,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                         />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                        <Label className="text-xs text-muted-foreground">{translate("Наявні таблиці")}</Label>
+                        <Label className="text-xs text-muted-foreground">{translate("Existing tables")}</Label>
                         <Select
                             items={WRITE_MODES.map(({ value, label }) => ({ value, label }))}
                             value={options.writeMode}
@@ -153,7 +153,7 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                     </div>
                     <Button className="ml-auto" disabled={!databaseValid || dump.isPending || !plan} onClick={download}>
                         {dump.isPending ? <Loader2 className="animate-spin" /> : <Download />}
-                        {translate("Завантажити")} {fileName}
+                        {translate("Download")} {fileName}
                     </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -167,22 +167,22 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                                 disabled={!options.includeData}
                                 onChange={(e) => setOptions((o) => ({ ...o, syncDeletes: e.target.checked }))}
                             />
-                            {translate("Також видаляти з MySQL рядки, яких уже немає в DBF (видалені або прибрані PACK у старій системі)")}
+                            {translate("Also delete MySQL rows no longer in the source (deleted or removed by PACK in the old system)")}
                         </label>
                     )}
                 </div>
                 {!databaseValid && (
-                    <p className="text-xs text-destructive">{translate("Назва бази даних: лише латинські літери, цифри та _, до 64 символів.")}</p>
+                    <p className="text-xs text-destructive">{translate("Database name: Latin letters, digits and _ only, up to 64 characters.")}</p>
                 )}
                 {dump.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(dump.state.error)}</p>}
                 {blockingIssues > 0 && (
                     <p className="text-xs text-destructive">
-                        {translate("Файл можна завантажити, але MySQL зупиниться на проблемах у даних (")}{blockingIssues}{translate(") — див. «Якість даних» нижче.")}
+                        {translate("The file can be downloaded, but MySQL will stop on data issues (")}{blockingIssues}{translate(") — see Data quality below.")}
                     </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                    {translate("Імпорт:")} <code className="bg-muted px-1">mysql --default-character-set=utf8mb4 -u root -p &lt; {fileName}</code>
-                    {' '}{translate("або в MySQL Workbench: File → Run SQL Script.")}
+                    {translate("Import:")} <code className="bg-muted px-1">mysql --default-character-set=utf8mb4 -u root -p &lt; {fileName}</code>
+                    {' '}{translate("or in MySQL Workbench: File → Run SQL Script.")}
                 </p>
             </div>
 
@@ -192,13 +192,13 @@ export function MysqlExportPanel({ sessionId, graph }: MysqlExportPanelProps) {
                 <p className="text-sm text-destructive">
                     {errorMessage(planState.error)}
                     {Object.keys(overrides).length > 0 && (
-                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>{translate("Скинути зміни")}</Button>
+                        <Button variant="link" size="sm" onClick={() => setOptions((o) => ({ ...o, overrides: {} }))}>{translate("Reset changes")}</Button>
                     )}
                 </p>
             )}
             {planState.status === 'pending' && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin" /> {plan ? translate("Оновлюю план…") : translate("Будую план і перевіряю кожен запис…")}
+                    <Loader2 className="size-3.5 animate-spin" /> {plan ? translate("Updating plan…") : translate("Building plan and checking every record…")}
                 </p>
             )}
             {plan && (

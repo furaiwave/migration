@@ -1,0 +1,16 @@
+{
+  "name": "migration",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "install:services": "npm --prefix client ci && npm --prefix migration-gateway ci",
+    "build:native": "cargo build --release --locked --manifest-path native/db-connector/Cargo.toml",
+    "prestart": "npm run build:native",
+    "start": "concurrently --kill-others --names client,gateway \"npm run start:client\" \"npm run start:gateway\"",
+    "start:client": "npm --prefix client run dev",
+    "start:gateway": "npm --prefix migration-gateway run start:dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
