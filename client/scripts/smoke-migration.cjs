@@ -132,7 +132,7 @@ async function main() {
     const currentPage = page => "document.querySelector('[data-workspace-link="+page+"]')?.getAttribute('aria-current') === 'page'";
     await waitFor(currentPage('home'));
     assert.equal(await evaluate("document.querySelectorAll('[data-workflow]').length"),3);
-    assert.equal(await evaluate("document.querySelectorAll('nav [data-workspace-link]').length"),4);
+    assert.equal(await evaluate("document.querySelectorAll('nav [data-workspace-link]').length"),6);
     assert.equal(await evaluate("document.querySelector('#database-migration') === null"),true,'the homepage does not open a migration form');
     for(const width of [1440,390]){
       await send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});

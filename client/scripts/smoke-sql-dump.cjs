@@ -68,9 +68,9 @@ async function main() {
     await send('Runtime.enable'); await send('Network.enable'); await send('Page.enable');
     if(process.env.UI_REVIEW) await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'dark'}]});
     await send('Page.navigate', { url: 'http://127.0.0.1:' + server.address().port });
-    await waitFor("!!document.querySelector('main > label select')");
+    await waitFor("!!document.querySelector('[data-workspace-link=dump]')");
     await captureUI('desktop-files-dark');
-    await evaluate("document.querySelector('main > label select').value='dump'; document.querySelector('main > label select').dispatchEvent(new Event('change',{bubbles:true}))");
+    await evaluate("document.querySelector('[data-workspace-link=dump]').click()");
     await waitFor("!!document.querySelector('input[accept*=sql]')");
     await captureUI('desktop-dump-empty');
     const upload = async sql => evaluate("(()=>{const input=document.querySelector('input[accept*=sql]');const data=new DataTransfer();data.items.add(new File([" + JSON.stringify(sql) + "],'schema.sql',{type:'application/sql'}));input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()");

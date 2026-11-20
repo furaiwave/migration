@@ -1,14 +1,15 @@
-<<<<<<< Updated upstream
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { SqlDumpPanel } from "@/components/SqlDumpPanel";
-=======
-<<<<<<< HEAD
 import { WorkspaceHome } from "@/components/WorkspaceHome";
 import { WorkspaceNavigation } from "@/components/WorkspaceNavigation";
 import { useWorkspaceNavigation } from "@/hooks/useWorkspaceNavigation";
-=======
-import { SqlDumpPanel } from "@/components/SqlDumpPanel";
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
 import { DatabaseMigrationPanel } from "@/components/DatabaseMigrationPanel";
 import { hasDatabaseMigrationJob } from "@/lib/databaseMigration";
 import { WorkspaceOverview } from "@/components/WorkspaceOverview";
@@ -17,15 +18,6 @@ import { ActivityConsole } from "@/components/ActivityConsole";
 import { translate, useLanguage } from "@/i18n";
 import { LanguagePicker } from "@/components/LanguagePicker";
 import { ThemeToggle } from "@/components/ThemeToggle";
-<<<<<<< Updated upstream
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-=======
-<<<<<<< HEAD
-import { useCallback, useEffect, useRef, useState } from "react";
-=======
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
 import { Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileDropzone } from "@/components/FileDropzone";
@@ -50,27 +42,23 @@ const SqlWorkspace = lazy(() => import("@/components/SqlWorkspace"));
 
 export default function App() {
   useLanguage();
-<<<<<<< Updated upstream
-=======
-<<<<<<< HEAD
   const importing = useHasActiveImport();
   const [migrating, setMigrating] = useState(
     () =>
       hasDatabaseMigrationJob() &&
       fileImportEngines(lastSession()).length === 0,
   );
-=======
->>>>>>> Stashed changes
-  const [mode, setMode] = useState<"files" | "database" | "dump" | "editor">("files");
-  const [editorOpened,setEditorOpened] = useState(false);
-  const [databaseOpened, setDatabaseOpened] = useState(hasDatabaseMigrationJob);
-  const [migrating, setMigrating] = useState(false);
-  const handleMigrationBusy = useCallback((busy: boolean) => { setMigrating(busy); if (busy) setMode("database"); }, []);
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
   const parse = useParseFiles();
   const navigationLocked = migrating || importing || parse.isPending;
-  const { page, databaseMode, databaseOpened, navigate, revealDatabaseJob } =
-    useWorkspaceNavigation(navigationLocked);
+  const {
+    page,
+    databaseMode,
+    databaseOpened,
+    editorOpened,
+    dumpOpened,
+    navigate,
+    revealDatabaseJob,
+  } = useWorkspaceNavigation(navigationLocked);
   const handleMigrationBusy = useCallback(
     (busy: boolean, activeJob: boolean) => {
       setMigrating(busy);
@@ -227,7 +215,6 @@ export default function App() {
       </header>
 
       <main className="workspace-main">
-<<<<<<< HEAD
         {page === "home" && (
           <WorkspaceHome locked={navigationLocked} onNavigate={navigate} />
         )}
@@ -240,6 +227,16 @@ export default function App() {
             />
           )}
         </div>
+        <div hidden={page !== "editor"}>
+          {editorOpened && (
+            <Suspense
+              fallback={<p role="status">{translate("Loading editor…")}</p>}
+            >
+              <SqlWorkspace />
+            </Suspense>
+          )}
+        </div>
+        <div hidden={page !== "dump"}>{dumpOpened && <SqlDumpPanel />}</div>
         <div hidden={page !== "files"}>
           <WorkspaceOverview
             session={session}
@@ -254,42 +251,7 @@ export default function App() {
               {restoring && !session ? (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />{" "}
-                  {translate("Opening the last session…")}
-=======
-        <label className="mb-5 flex flex-wrap items-center gap-3 text-sm font-semibold">
-          {translate("Source data")}
-          <select className="h-10 border bg-background px-3 text-sm" value={mode} disabled={migrating} onChange={event => { setMode(event.target.value as "files" | "database" | "dump" | "editor"); if (event.target.value === "database") setDatabaseOpened(true); if(event.target.value === "editor") setEditorOpened(true); }}>
-            <option value="files">{translate("Table files")}</option>
-            <option value="editor">{translate("SQL editor")}</option>
-            <option value="dump">{translate("SQL dump")}</option>
-            <option value="database">{translate("Between databases")}</option>
-          </select>
-        </label>
-        <div hidden={mode !== "database"}>{databaseOpened && <DatabaseMigrationPanel onBusy={handleMigrationBusy} />}</div>
-        <div hidden={mode !== "editor"}>{editorOpened && <Suspense fallback={<p role="status">{translate("Loading editor\u2026")}</p>}><SqlWorkspace /></Suspense>}</div>
-        <div hidden={mode !== "dump"}><SqlDumpPanel /></div>
-        <div hidden={mode !== "files"}>
-        <WorkspaceOverview
-          session={session}
-          graph={graph}
-          working={restoring || parse.isPending}
-        />
-        <div className="workspace-grid">
-          <aside id="destination" className="workspace-sidebar">
-            <DatabaseDiscovery />
-          </aside>
-          <div className="workspace-content">
-            {restoring && !session ? (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />{" "}
-                {translate("Opening the last session…")}
-              </p>
-            ) : restoreError && !session ? (
-              <div className="flex flex-col items-start gap-3 border border-destructive/40 p-4 text-sm">
-                <p className="text-destructive">
-                  {translate("Could not open the last session:")}{" "}
-                  {errorMessage(restoreError)}
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+                  {translate("Opening the last session…")}{" "}
                 </p>
               ) : restoreError && !session ? (
                 <div className="flex flex-col items-start gap-3 border border-destructive/40 p-4 text-sm">

@@ -15,24 +15,15 @@
     "test:import": "node --test scripts/test-import-status.cjs",
     "test:migration:browser": "npm run build && node scripts/smoke-migration.cjs",
     "test:api": "node --test scripts/test-api-response.cjs",
-<<<<<<< Updated upstream
-=======
-<<<<<<< HEAD
     "test:schema": "node --test scripts/test-schema-tree.cjs",
     "test:relationships:browser": "npm run build && node scripts/smoke-relationships.cjs",
     "test:migration": "node --test scripts/test-migration-status.cjs",
     "test:recovery": "node --test scripts/test-file-import-jobs.cjs",
-    "test:recovery:browser": "npm run build && node scripts/smoke-file-import-recovery.cjs"
-=======
->>>>>>> Stashed changes
+    "test:recovery:browser": "npm run build && node scripts/smoke-file-import-recovery.cjs",
     "test:dump": "node --test scripts/test-sql-dump.cjs",
     "test:dump:browser": "npm run build && node scripts/smoke-sql-dump.cjs",
     "test:editor": "node --test scripts/test-sql-editor.cjs",
     "test:editor:browser": "npm run build && node scripts/smoke-sql-editor.cjs"
-<<<<<<< Updated upstream
-=======
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

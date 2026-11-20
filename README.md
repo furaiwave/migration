@@ -46,8 +46,6 @@ Source strings and translation keys are English. Other languages live in the tra
 Translation catalog: `client/src/i18n/messages.json`. Check it with `cd client` followed by `npm run test:i18n`.
 
 Use the button next to the language selector to switch between light and dark themes. The desktop interface uses centered work areas, soft charcoal surfaces in dark mode, fine line icons, and green/red outlined actions. Your choice persists between launches; before a manual selection, the theme follows the system preference.
-<<<<<<< Updated upstream
-=======
 
 ## MySQL synchronization
 
@@ -58,7 +56,6 @@ Append and Sync also compare existing column types, character sets and key colla
 Generated MySQL scripts enable `STRICT_ALL_TABLES` for their session and restore the previous SQL mode on completion. Metadata and warnings remain line comments in SQL and mongosh exports, including when an uploaded field name contains CR, LF or Unicode line separators.
 
 FoxPro and dBASE 7 timestamps retain milliseconds; MySQL uses `DATETIME(3)` by default. A narrower temporal override is rejected when it would discard nonzero fractional seconds. Valid dates before year 1000 remain available to other engines, while the MySQL plan reports its destination range restriction. Binary fields preserve zero bytes, empty byte sequences and explicit NULL as distinct values across all five destinations.
->>>>>>> Stashed changes
 
 ## PostgreSQL and Microsoft SQL Server
 
@@ -82,7 +79,7 @@ DNS/TCP diagnostics, database catalogs and connection timing are documented in [
 
 ## Workspace
 
-The homepage offers Table files, Between databases and Version upgrade. A persistent navigation bar opens each workflow directly, including old-to-new server migration. Page links use `?view=home`, `?view=files`, `?view=transfer` and `?view=upgrade`; browser Back/Forward and reload keep the selected screen. Navigation preserves connection edits in memory, with passwords cleared on reload. Active imports and migrations keep navigation locked until they finish or stop.
+The homepage offers Table files, Between databases and Version upgrade. A persistent navigation bar opens each workflow directly, along with SQL editor and SQL dump inspection. Page links use `?view=home`, `?view=files`, `?view=transfer`, `?view=upgrade`, `?view=editor` and `?view=dump`; browser Back/Forward and reload keep the selected screen. Navigation preserves connection edits in memory, with passwords cleared on reload. Active imports and migrations keep navigation locked until they finish or stop.
 
 File-based imports have four steps: optional server selection, table files, relationship review and transfer. The overview shows table, record and active relationship counts. Technical file headers can be expanded separately. The activity log is always available in the bottom panel, where it can be expanded, filtered by status and downloaded as .log. While a file import is starting or running, New session and source switching stay disabled so the active job keeps its session and progress. After a successful start response, reloading restores the existing job, progress and cancellation for all five destinations without starting another import. Only session, engine and job IDs are saved locally. Temporary status failures keep the session locked and retry; a missing job clears its reference and asks you to check the destination before restarting. Graceful application shutdown waits for in-flight operations and SQL rollback; writes already completed in MySQL, MongoDB or Redis remain in place.
 
@@ -100,23 +97,15 @@ source imports use hashes and support key prefixes, new-record or field-update m
 
 ## Between databases
 
-<<<<<<< HEAD
 Open **Between databases** from the homepage or navigation bar. It supports MySQL/MariaDB, MongoDB, PostgreSQL, MSSQL and Redis as both sources and destinations, with object selection, plan review, progress and cancellation. **Version upgrade** copies data from an older server to an already installed newer server of the same family, with detected versions and checks before writing. Data representations and limitations are documented in [MIGRATIONS.md](MIGRATIONS.md).
 
 ## GraphQL
 
 **POST /dbf/graphql** supports connection checks, source catalogs, migration planning, start, status and cancellation across the existing database engines. It shares plans and jobs with REST, including version upgrades. Schema: **GET /dbf/graphql/schema**. Usage, authentication and examples: [GRAPHQL.md](GRAPHQL.md).
-=======
-Table files remain the default source. **Between databases** supports MySQL/MariaDB, MongoDB, PostgreSQL, MSSQL and Redis as both sources and destinations, with object selection, plan review, progress and cancellation. Data representations and limitations are documented in [MIGRATIONS.md](MIGRATIONS.md).
+## SQL dump inspection
 
-### SQL dump inspection
+Choose **SQL dump** in the navigation bar to open a UTF-8 plain-text PostgreSQL, MySQL or SQLite dump (up to 50 MB). The browser reads CREATE TABLE, ALTER TABLE ADD and DROP TABLE statements without executing SQL or uploading the file. Choose a format explicitly when a SQL file has no recognizable dump header; changing the format rereads the selected file. Table cards show columns and primary/foreign keys; selecting a table filters incoming and outgoing relationships, including composite keys. Only declared foreign keys are shown. Referenced tables missing from the dump are marked. Data-only dumps, compressed files and PostgreSQL custom archives must first be exported as plain-text SQL with schema.
 
-Choose **SQL dump** under **Source data** to open a UTF-8 plain-text PostgreSQL, MySQL or SQLite dump (up to 50 MB). The browser reads CREATE TABLE, ALTER TABLE ADD and DROP TABLE statements without executing SQL or uploading the file. Choose a format explicitly when a SQL file has no recognizable dump header; changing the format rereads the selected file. Table cards show columns and primary/foreign keys; selecting a table filters incoming and outgoing relationships, including composite keys. Only declared foreign keys are shown. Referenced tables missing from the dump are marked. Data-only dumps, compressed files and PostgreSQL custom archives must first be exported as plain-text SQL with schema.
+## SQL editor
 
-### SQL editor
-
-Choose **SQL editor** under **Source data** for native PostgreSQL, MySQL/MariaDB and SQL Server queries. It includes SQL completion, query tabs, a table explorer, Ctrl+Enter, result filtering/sorting, cell inspection and CSV/JSON export. Rust streams bounded results; the TypeScript grid virtualizes rows and columns. See [SQL_EDITOR.md](SQL_EDITOR.md) for execution semantics, limits and checks.
-<<<<<<< Updated upstream
-=======
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
+Choose **SQL editor** in the navigation bar for native PostgreSQL, MySQL/MariaDB and SQL Server queries. It includes SQL completion, query tabs, a table explorer, Ctrl+Enter, result filtering/sorting, cell inspection and CSV/JSON export. Rust streams bounded results; the TypeScript grid virtualizes rows and columns. See [SQL_EDITOR.md](SQL_EDITOR.md) for execution semantics, limits and checks.

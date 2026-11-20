@@ -1,6 +1,6 @@
 # SQL editor
 
-Open **Source data → SQL editor** to work with PostgreSQL, MySQL/MariaDB or Microsoft SQL Server. SQL runs through the Rust connector; the TypeScript interface provides CodeMirror editing, a schema explorer, query tabs and virtualized results.
+Open **SQL editor** from the navigation bar to work with PostgreSQL, MySQL/MariaDB or Microsoft SQL Server. SQL runs through the Rust connector; the TypeScript interface provides CodeMirror editing, a schema explorer, query tabs and virtualized results.
 
 ## Workflow
 

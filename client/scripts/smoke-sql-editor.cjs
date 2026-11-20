@@ -109,8 +109,8 @@ async function main() {
     await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
     await send('Fetch.enable',{patterns:[{urlPattern:'*/dbf/native/*'}]});
     await send('Page.navigate',{url:'http://127.0.0.1:'+server.address().port});
-    await waitFor("!!document.querySelector('main > label select')");
-    await evaluate("(()=>{const s=document.querySelector('main > label select');s.value='editor';s.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await waitFor("!!document.querySelector('[data-workspace-link=editor]')");
+    await evaluate("document.querySelector('[data-workspace-link=editor]').click()");
     await waitFor("!!document.querySelector('.cm-content')");
     assert.equal(await evaluate("document.querySelector('.sql-connection-status').textContent.includes('Not connected')"),true);
     const fill=async(label,value)=>evaluate("(()=>{const label=Array.from(document.querySelectorAll('.sql-connection-form label')).find(label=>label.firstChild.textContent==="+JSON.stringify(label)+");const input=label.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,"+JSON.stringify(value)+");input.dispatchEvent(new Event('input',{bubbles:true}));})()");

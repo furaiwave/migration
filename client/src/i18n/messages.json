@@ -6371,9 +6371,6 @@
     "sv": "Tabellfiler",
     "it": "File delle tabelle"
   },
-<<<<<<< Updated upstream
-=======
-<<<<<<< HEAD
   "Migration mode": {
     "en": "Migration mode",
     "uk": "Режим міграції",
@@ -6541,8 +6538,7 @@
     "de": "Keine passenden Objekte.",
     "sv": "Inga matchande objekt.",
     "it": "Nessun oggetto corrispondente."
-=======
->>>>>>> Stashed changes
+  },
   "SQL dump": {
     "en": "SQL dump",
     "uk": "SQL-дамп",
@@ -6986,10 +6982,6 @@
     "de": "Verlauf",
     "sv": "Historik",
     "it": "Cronologia"
-<<<<<<< Updated upstream
-=======
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
   },
   "Refresh structure": {
     "en": "Refresh structure",
@@ -6998,22 +6990,11 @@
     "es": "Actualizar estructura",
     "pl": "Odśwież strukturę",
     "ja": "構造を更新",
-<<<<<<< Updated upstream
     "ko": "구조 새로 고침",
-=======
-<<<<<<< HEAD
-    "ko": "구조 새로고침",
-=======
-    "ko": "구조 새로 고침",
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
     "de": "Struktur aktualisieren",
     "sv": "Uppdatera struktur",
     "it": "Aggiorna struttura"
   },
-<<<<<<< Updated upstream
-=======
-<<<<<<< HEAD
   "Search relationships": {
     "en": "Search relationships",
     "uk": "Пошук зв’язків",
@@ -7349,8 +7330,7 @@
     "de": "Die Navigation ist nach Abschluss des aktuellen Vorgangs wieder verfügbar.",
     "sv": "Navigeringen blir tillgänglig när den pågående åtgärden är klar.",
     "it": "La navigazione sarà disponibile al termine dell’operazione in corso."
-=======
->>>>>>> Stashed changes
+  },
   "Browse table {0}": {
     "en": "Browse table {0}",
     "uk": "Відкрити таблицю {0}",
@@ -7866,9 +7846,5 @@
     "de": "SQL muss 1 bis 196608 Bytes enthalten",
     "sv": "SQL måste innehålla 1 till 196608 byte",
     "it": "SQL deve contenere da 1 a 196608 byte"
-<<<<<<< Updated upstream
-=======
->>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
->>>>>>> Stashed changes
   }
 }

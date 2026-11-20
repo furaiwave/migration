@@ -337,3 +337,8 @@
   .workspace-navigation-notice { padding:6px 16px 10px; }
   .workspace-scenario { padding:20px; }
 }
+
+@media (min-width:601px) and (max-width:1000px) {
+  .workspace-navigation { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .workspace-navigation a { justify-content:flex-start; padding:11px 10px; }
+}

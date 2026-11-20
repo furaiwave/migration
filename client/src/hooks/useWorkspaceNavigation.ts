@@ -15,6 +15,8 @@ export function useWorkspaceNavigation(locked: boolean) {
       if (page === "transfer" || page === "upgrade") rememberDatabaseMode(page);
       setState((current) => ({
         page,
+        editorOpened: current.editorOpened || page === "editor",
+        dumpOpened: current.dumpOpened || page === "dump",
         databaseMode:
           page === "transfer" || page === "upgrade"
             ? page

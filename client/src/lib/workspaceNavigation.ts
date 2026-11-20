@@ -4,12 +4,20 @@ import { fileImportEngines } from "./fileImportJobs";
 import { lastSession } from "./lastSession";
 import type { MigrationMode } from "@/api/migration.types";
 
-export type WorkspacePage = "home" | "files" | "transfer" | "upgrade";
+export type WorkspacePage =
+  | "home"
+  | "files"
+  | "transfer"
+  | "upgrade"
+  | "editor"
+  | "dump";
 const pages: readonly WorkspacePage[] = [
   "home",
   "files",
   "transfer",
   "upgrade",
+  "editor",
+  "dump",
 ];
 const MODE_KEY = "dbf-inspector:database-workspace-mode";
 export function requestedWorkspacePage(): WorkspacePage | null {
@@ -44,6 +52,8 @@ export function initialWorkspaceNavigation(): {
   page: WorkspacePage;
   databaseMode: MigrationMode;
   databaseOpened: boolean;
+  editorOpened: boolean;
+  dumpOpened: boolean;
 } {
   const fileJob = fileImportEngines(lastSession()).length > 0;
   const rememberedMode = savedDatabaseMode();
@@ -57,6 +67,8 @@ export function initialWorkspaceNavigation(): {
           : "home"));
   return {
     page,
+    editorOpened: page === "editor",
+    dumpOpened: page === "dump",
     databaseMode:
       page === "upgrade" || page === "transfer" ? page : rememberedMode,
     databaseOpened:

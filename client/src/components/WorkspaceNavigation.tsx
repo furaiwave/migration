@@ -1,4 +1,11 @@
-import { ArrowRightLeft, ArrowUpRight, Files, House } from "lucide-react";
+import {
+  ArrowRightLeft,
+  ArrowUpRight,
+  Files,
+  House,
+  SquareTerminal,
+  FileCode2,
+} from "lucide-react";
 import { translate } from "@/i18n";
 import {
   followWorkspaceLink,
@@ -11,6 +18,8 @@ const destinations = [
   { page: "files", icon: Files, label: "Table files" },
   { page: "transfer", icon: ArrowRightLeft, label: "Between databases" },
   { page: "upgrade", icon: ArrowUpRight, label: "Version upgrade" },
+  { page: "editor", icon: SquareTerminal, label: "SQL editor" },
+  { page: "dump", icon: FileCode2, label: "SQL dump" },
 ] as const;
 export function WorkspaceNavigation({
   page,
