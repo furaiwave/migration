@@ -33,6 +33,7 @@ interface Job {
   cancel: boolean;
   started: number;
   finished?: number;
+  done?: Promise<void>;
 }
 class RedisRecordError extends Error {}
 const FAILED =
@@ -47,6 +48,7 @@ export function validateRedisUri(uri: string): URL {
       url.hash ||
       !/^\/(?:0|[1-9]\d*)?$/.test(url.pathname || '/') ||
       uri.length > 8192 ||
+      // eslint-disable-next-line no-control-regex -- Reject raw controls and whitespace in connection URIs.
       /[\x00-\x20\x7f]/.test(uri) ||
       Number(url.pathname.slice(1)) > 2147483647
     )
@@ -87,7 +89,19 @@ export function redisRecord(
 export class RedisImportService {
   private readonly jobs = new Map<string, Job>();
   private active = 0;
+  private stopping = false;
   constructor(private readonly source: MysqlExportService) {}
+  async onModuleDestroy(): Promise<void> {
+    this.stopping = true;
+    for (const job of this.jobs.values()) job.cancel = true;
+    await Promise.allSettled(
+      [...this.jobs.values()].map((job) => job.done ?? Promise.resolve()),
+    );
+  }
+  private checkRunning(): void {
+    if (this.stopping)
+      throw new ServiceUnavailableException('The import service is stopping');
+  }
   prepare(
     session: DbfSession,
     links: readonly DbfRelationship[],
@@ -102,17 +116,22 @@ export class RedisImportService {
       typeof options.keepDeleted !== 'boolean'
     )
       throw new BadRequestException('Invalid Redis import options');
-    const source = this.source.documentSource(session, links, {
-      writeMode: 'append',
-      includeData: true,
-      foreignKeys: false,
-      indexes: true,
-      syncDeletes: false,
-      emptyStringsAsNull: false,
-      orphansAsNull: false,
-      keepDeleted: options.keepDeleted,
-      overrides: {},
-    }, 'sql');
+    const source = this.source.documentSource(
+      session,
+      links,
+      {
+        writeMode: 'append',
+        includeData: true,
+        foreignKeys: false,
+        indexes: true,
+        syncDeletes: false,
+        emptyStringsAsNull: false,
+        orphansAsNull: false,
+        keepDeleted: options.keepDeleted,
+        overrides: {},
+      },
+      'sql',
+    );
     const tables = source.tables.filter((t) => !t.excluded);
     if (
       !tables.length ||
@@ -145,9 +164,18 @@ export class RedisImportService {
     validateRedisUri(uri);
     let client: Client | undefined;
     try {
-      client = createClient({ url: uri, disableOfflineQueue: true,
-        socket: { connectTimeout: 8000, socketTimeout: 10000, reconnectStrategy: false } });
-      client.on('error', () => { /* Never log driver messages or credentials. */ });
+      client = createClient({
+        url: uri,
+        disableOfflineQueue: true,
+        socket: {
+          connectTimeout: 8000,
+          socketTimeout: 10000,
+          reconnectStrategy: false,
+        },
+      });
+      client.on('error', () => {
+        /* Never log driver messages or credentials. */
+      });
       await client.connect();
       return client;
     } catch {
@@ -161,6 +189,7 @@ export class RedisImportService {
     options: RedisOptions,
     uri: string,
   ): Promise<RedisImportStatus> {
+    this.checkRunning();
     const prepared = this.prepare(session, links, options);
     if (prepared.plan.quality.some((q) => q.effect === 'fail'))
       throw new BadRequestException(
@@ -174,6 +203,10 @@ export class RedisImportService {
     let client: Client;
     try {
       client = await this.connect(uri);
+      if (this.stopping) {
+        if (client.isOpen) client.destroy();
+        this.checkRunning();
+      }
     } catch (err) {
       this.active--;
       throw err;
@@ -206,7 +239,7 @@ export class RedisImportService {
       },
     };
     this.jobs.set(job.status.jobId, job);
-    void this.run(job, prepared.source, options, client);
+    job.done = this.run(job, prepared.source, options, client);
     return this.snapshot(job);
   }
   private async run(
@@ -296,7 +329,10 @@ export class RedisImportService {
   private snapshot(job: Job): RedisImportStatus {
     return {
       ...job.status,
-      progress: { ...job.status.progress, elapsedMs: (job.finished ?? Date.now()) - job.started },
+      progress: {
+        ...job.status.progress,
+        elapsedMs: (job.finished ?? Date.now()) - job.started,
+      },
     };
   }
   private find(id: string): Job {

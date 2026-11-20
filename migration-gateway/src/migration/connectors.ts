@@ -4,6 +4,7 @@ import { createClient, RESP_TYPES } from 'redis';
 import { createHash, randomUUID } from 'crypto';
 import type {
   MigrationConnection,
+  MigrationMode,
   MigrationObject,
   PlannedObject,
 } from './migration.types';
@@ -17,6 +18,7 @@ import {
   type Target,
 } from './model';
 import { connectSql, SqlSource, SqlTarget } from './sql';
+import { serverVersion } from './versions';
 
 async function connectMongo(input: MigrationConnection) {
   const client = new MongoClient(input.uri!, {
@@ -58,6 +60,10 @@ class MongoSource implements Source {
     private readonly client: MongoClient,
     private readonly db: Db,
   ) {}
+  async version() {
+    const info = await this.db.admin().command({ buildInfo: 1 });
+    return serverVersion('mongo', info.version);
+  }
   async objects(): Promise<MigrationObject[]> {
     const collections = await this.db
       .listCollections({}, { nameOnly: false })
@@ -81,7 +87,7 @@ class MongoSource implements Source {
   async *read(object: MigrationObject, signal: AbortSignal) {
     const cursor = this.db
       .collection(object.name)
-      .find({}, { batchSize: 250, promoteValues: false });
+      .find({}, { batchSize: 250, promoteValues: false, bsonRegExp: true });
     const abort = () => {
       void cursor.close().catch(() => {});
     };
@@ -110,6 +116,10 @@ class MongoTarget implements Target {
     private readonly client: MongoClient,
     private readonly db: Db,
   ) {}
+  async version() {
+    const info = await this.db.admin().command({ buildInfo: 1 });
+    return serverVersion('mongo', info.version);
+  }
   async check(objects: PlannedObject[]) {
     const names = new Set(
       (await this.db.listCollections({}, { nameOnly: true }).toArray()).map(
@@ -163,8 +173,18 @@ class MongoTarget implements Target {
     return this.client.close();
   }
 }
+async function redisVersion(client: RedisClient) {
+  const info = await client.info('server');
+  return serverVersion(
+    'redis',
+    /(?:^|\r?\n)redis_version:([^\r\n]+)/.exec(String(info))?.[1],
+  );
+}
 class RedisSource implements Source {
   constructor(private readonly client: RedisClient) {}
+  version() {
+    return redisVersion(this.client);
+  }
   objects(): Promise<MigrationObject[]> {
     return Promise.resolve([
       {
@@ -220,7 +240,11 @@ class RedisTarget implements Target {
   constructor(
     private readonly client: RedisClient,
     private readonly prefix: string,
+    private readonly preserveKeys = false,
   ) {}
+  version() {
+    return redisVersion(this.client);
+  }
   async check() {
     await this.client.ping();
   }
@@ -231,12 +255,14 @@ class RedisTarget implements Target {
     ordinal: number,
   ): Promise<boolean> {
     if (object.source.format === 'redis') {
-      const key = Buffer.concat([
-        Buffer.from(
-          this.prefix + ':' + encodeURIComponent(object.targetName) + ':',
-        ),
-        row.key as Buffer,
-      ]);
+      const key = this.preserveKeys
+        ? Buffer.from(row.key as Buffer)
+        : Buffer.concat([
+            Buffer.from(
+              this.prefix + ':' + encodeURIComponent(object.targetName) + ':',
+            ),
+            row.key as Buffer,
+          ]);
       const expires = row.expiresAt === null ? null : Number(row.expiresAt);
       if (expires !== null && expires <= Date.now()) return false;
       // RESTORE without REPLACE refuses existing keys and preserves binary keys and native Redis types.
@@ -299,13 +325,21 @@ export class MigrationConnectors {
       return new RedisSource(await connectRedis(input));
     return new SqlSource(await connectSql(input), input);
   }
-  async target(input: MigrationConnection, prefix: string): Promise<Target> {
+  async target(
+    input: MigrationConnection,
+    prefix: string,
+    mode?: MigrationMode,
+  ): Promise<Target> {
     if (input.engine === 'mongo') {
       const { client, db } = await connectMongo(input);
       return new MongoTarget(client, db);
     }
     if (input.engine === 'redis')
-      return new RedisTarget(await connectRedis(input), prefix);
+      return new RedisTarget(
+        await connectRedis(input),
+        prefix,
+        mode === 'upgrade',
+      );
     return new SqlTarget(await connectSql(input), input);
   }
   async differentRedisDatabases(

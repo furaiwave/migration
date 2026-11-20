@@ -6371,6 +6371,178 @@
     "sv": "Tabellfiler",
     "it": "File delle tabelle"
   },
+<<<<<<< Updated upstream
+=======
+<<<<<<< HEAD
+  "Migration mode": {
+    "en": "Migration mode",
+    "uk": "Режим міграції",
+    "fr": "Mode de migration",
+    "es": "Modo de migración",
+    "pl": "Tryb migracji",
+    "ja": "移行モード",
+    "ko": "마이그레이션 모드",
+    "de": "Migrationsmodus",
+    "sv": "Migreringsläge",
+    "it": "Modalità di migrazione"
+  },
+  "Version upgrade": {
+    "en": "Version upgrade",
+    "uk": "Оновлення версії",
+    "fr": "Mise à niveau de version",
+    "es": "Actualización de versión",
+    "pl": "Aktualizacja wersji",
+    "ja": "バージョンアップ",
+    "ko": "버전 업그레이드",
+    "de": "Versionsupgrade",
+    "sv": "Versionsuppgradering",
+    "it": "Aggiornamento di versione"
+  },
+  "Old server": {
+    "en": "Old server",
+    "uk": "Старий сервер",
+    "fr": "Ancien serveur",
+    "es": "Servidor antiguo",
+    "pl": "Stary serwer",
+    "ja": "旧サーバー",
+    "ko": "이전 서버",
+    "de": "Alter Server",
+    "sv": "Gammal server",
+    "it": "Vecchio server"
+  },
+  "New server": {
+    "en": "New server",
+    "uk": "Новий сервер",
+    "fr": "Nouveau serveur",
+    "es": "Servidor nuevo",
+    "pl": "Nowy serwer",
+    "ja": "新サーバー",
+    "ko": "새 서버",
+    "de": "Neuer Server",
+    "sv": "Ny server",
+    "it": "Nuovo server"
+  },
+  "Copy data from an older server to an already installed newer server of the same database family. Versions are detected when building the plan. Review type conversions and schema limitations before switching applications.": {
+    "en": "Copy data from an older server to an already installed newer server of the same database family. Versions are detected when building the plan. Review type conversions and schema limitations before switching applications.",
+    "uk": "Перенесіть дані зі старішого сервера на вже встановлений новіший сервер тієї самої СУБД. Версії визначаються під час побудови плану. Перед перемиканням застосунків перевірте перетворення типів і обмеження схеми.",
+    "fr": "Copiez les données d’un ancien serveur vers un serveur plus récent déjà installé de la même famille. Les versions sont détectées à la création du plan. Vérifiez les conversions de types et les limites du schéma avant de basculer les applications.",
+    "es": "Copie los datos de un servidor antiguo a uno más nuevo ya instalado de la misma familia. Las versiones se detectan al crear el plan. Revise las conversiones de tipos y las limitaciones del esquema antes de cambiar las aplicaciones.",
+    "pl": "Przenieś dane ze starszego serwera na już zainstalowany nowszy serwer tej samej rodziny baz danych. Wersje są wykrywane podczas tworzenia planu. Przed przełączeniem aplikacji sprawdź konwersje typów i ograniczenia schematu.",
+    "ja": "同じデータベース系統の旧サーバーから、インストール済みの新しいサーバーへデータをコピーします。バージョンは計画作成時に検出されます。アプリケーションの接続先を切り替える前に、型変換とスキーマの制限を確認してください。",
+    "ko": "같은 데이터베이스 계열의 이전 서버에서 이미 설치된 최신 서버로 데이터를 복사합니다. 계획을 작성할 때 버전을 감지합니다. 애플리케이션을 전환하기 전에 형식 변환과 스키마 제한을 검토하세요.",
+    "de": "Kopieren Sie Daten von einem älteren Server auf einen bereits installierten neueren Server derselben Datenbankfamilie. Die Versionen werden beim Erstellen des Plans erkannt. Prüfen Sie Typkonvertierungen und Schemaeinschränkungen vor dem Umstellen der Anwendungen.",
+    "sv": "Kopiera data från en äldre server till en redan installerad nyare server i samma databasfamilj. Versionerna identifieras när planen skapas. Granska typkonverteringar och schemabegränsningar innan du byter server i programmen.",
+    "it": "Copia i dati da un vecchio server a uno più recente già installato della stessa famiglia di database. Le versioni vengono rilevate durante la creazione del piano. Verifica le conversioni dei tipi e i limiti dello schema prima di riconnettere le applicazioni."
+  },
+  "Database structure": {
+    "en": "Database structure",
+    "uk": "Структура бази даних",
+    "fr": "Structure de la base de données",
+    "es": "Estructura de la base de datos",
+    "pl": "Struktura bazy danych",
+    "ja": "データベース構造",
+    "ko": "데이터베이스 구조",
+    "de": "Datenbankstruktur",
+    "sv": "Databasstruktur",
+    "it": "Struttura del database"
+  },
+  "Schema": {
+    "en": "Schema",
+    "uk": "Схема",
+    "fr": "Schéma",
+    "es": "Esquema",
+    "pl": "Schemat",
+    "ja": "スキーマ",
+    "ko": "스키마",
+    "de": "Schema",
+    "sv": "Schema",
+    "it": "Schema"
+  },
+  "View": {
+    "en": "View",
+    "uk": "Подання",
+    "fr": "Vue",
+    "es": "Vista",
+    "pl": "Widok",
+    "ja": "ビュー",
+    "ko": "뷰",
+    "de": "Sicht",
+    "sv": "Vy",
+    "it": "Vista"
+  },
+  "Keys": {
+    "en": "Keys",
+    "uk": "Ключі",
+    "fr": "Clés",
+    "es": "Claves",
+    "pl": "Klucze",
+    "ja": "キー",
+    "ko": "키",
+    "de": "Schlüssel",
+    "sv": "Nycklar",
+    "it": "Chiavi"
+  },
+  "Default schema": {
+    "en": "Default schema",
+    "uk": "Типова схема",
+    "fr": "Schéma par défaut",
+    "es": "Esquema predeterminado",
+    "pl": "Schemat domyślny",
+    "ja": "既定のスキーマ",
+    "ko": "기본 스키마",
+    "de": "Standardschema",
+    "sv": "Standardschema",
+    "it": "Schema predefinito"
+  },
+  "Search schemas, tables and fields": {
+    "en": "Search schemas, tables and fields",
+    "uk": "Пошук схем, таблиць і полів",
+    "fr": "Rechercher des schémas, tables et champs",
+    "es": "Buscar esquemas, tablas y campos",
+    "pl": "Szukaj schematów, tabel i pól",
+    "ja": "スキーマ・テーブル・フィールドを検索",
+    "ko": "스키마, 테이블 및 필드 검색",
+    "de": "Schemas, Tabellen und Felder suchen",
+    "sv": "Sök scheman, tabeller och fält",
+    "it": "Cerca schemi, tabelle e campi"
+  },
+  "Expand all": {
+    "en": "Expand all",
+    "uk": "Розгорнути все",
+    "fr": "Tout développer",
+    "es": "Expandir todo",
+    "pl": "Rozwiń wszystko",
+    "ja": "すべて展開",
+    "ko": "모두 펼치기",
+    "de": "Alle aufklappen",
+    "sv": "Expandera alla",
+    "it": "Espandi tutto"
+  },
+  "Collapse all": {
+    "en": "Collapse all",
+    "uk": "Згорнути все",
+    "fr": "Tout réduire",
+    "es": "Contraer todo",
+    "pl": "Zwiń wszystko",
+    "ja": "すべて折りたたむ",
+    "ko": "모두 접기",
+    "de": "Alle zuklappen",
+    "sv": "Fäll ihop alla",
+    "it": "Comprimi tutto"
+  },
+  "No matching objects.": {
+    "en": "No matching objects.",
+    "uk": "Відповідних об’єктів немає.",
+    "fr": "Aucun objet correspondant.",
+    "es": "No hay objetos coincidentes.",
+    "pl": "Brak pasujących obiektów.",
+    "ja": "一致するオブジェクトがありません。",
+    "ko": "일치하는 객체가 없습니다.",
+    "de": "Keine passenden Objekte.",
+    "sv": "Inga matchande objekt.",
+    "it": "Nessun oggetto corrispondente."
+=======
+>>>>>>> Stashed changes
   "SQL dump": {
     "en": "SQL dump",
     "uk": "SQL-дамп",
@@ -6814,6 +6986,10 @@
     "de": "Verlauf",
     "sv": "Historik",
     "it": "Cronologia"
+<<<<<<< Updated upstream
+=======
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes
   },
   "Refresh structure": {
     "en": "Refresh structure",
@@ -6822,11 +6998,359 @@
     "es": "Actualizar estructura",
     "pl": "Odśwież strukturę",
     "ja": "構造を更新",
+<<<<<<< Updated upstream
     "ko": "구조 새로 고침",
+=======
+<<<<<<< HEAD
+    "ko": "구조 새로고침",
+=======
+    "ko": "구조 새로 고침",
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes
     "de": "Struktur aktualisieren",
     "sv": "Uppdatera struktur",
     "it": "Aggiorna struttura"
   },
+<<<<<<< Updated upstream
+=======
+<<<<<<< HEAD
+  "Search relationships": {
+    "en": "Search relationships",
+    "uk": "Пошук зв’язків",
+    "fr": "Rechercher des relations",
+    "es": "Buscar relaciones",
+    "pl": "Szukaj relacji",
+    "ja": "リレーションを検索",
+    "ko": "관계 검색",
+    "de": "Beziehungen suchen",
+    "sv": "Sök relationer",
+    "it": "Cerca relazioni"
+  },
+  "Filter by table": {
+    "en": "Filter by table",
+    "uk": "Фільтр за таблицею",
+    "fr": "Filtrer par table",
+    "es": "Filtrar por tabla",
+    "pl": "Filtruj według tabeli",
+    "ja": "テーブルで絞り込み",
+    "ko": "테이블로 필터링",
+    "de": "Nach Tabelle filtern",
+    "sv": "Filtrera efter tabell",
+    "it": "Filtra per tabella"
+  },
+  "All tables": {
+    "en": "All tables",
+    "uk": "Усі таблиці",
+    "fr": "Toutes les tables",
+    "es": "Todas las tablas",
+    "pl": "Wszystkie tabele",
+    "ja": "すべてのテーブル",
+    "ko": "모든 테이블",
+    "de": "Alle Tabellen",
+    "sv": "Alla tabeller",
+    "it": "Tutte le tabelle"
+  },
+  "Relationship type": {
+    "en": "Relationship type",
+    "uk": "Тип зв’язку",
+    "fr": "Type de relation",
+    "es": "Tipo de relación",
+    "pl": "Typ relacji",
+    "ja": "リレーションの種類",
+    "ko": "관계 유형",
+    "de": "Beziehungstyp",
+    "sv": "Relationstyp",
+    "it": "Tipo di relazione"
+  },
+  "All relationship types": {
+    "en": "All relationship types",
+    "uk": "Усі типи зв’язків",
+    "fr": "Tous les types de relations",
+    "es": "Todos los tipos de relación",
+    "pl": "Wszystkie typy relacji",
+    "ja": "すべての種類",
+    "ko": "모든 관계 유형",
+    "de": "Alle Beziehungstypen",
+    "sv": "Alla relationstyper",
+    "it": "Tutti i tipi di relazione"
+  },
+  "Relationship state": {
+    "en": "Relationship state",
+    "uk": "Стан зв’язку",
+    "fr": "État de la relation",
+    "es": "Estado de la relación",
+    "pl": "Stan relacji",
+    "ja": "リレーションの状態",
+    "ko": "관계 상태",
+    "de": "Beziehungsstatus",
+    "sv": "Relationsstatus",
+    "it": "Stato della relazione"
+  },
+  "All states": {
+    "en": "All states",
+    "uk": "Усі стани",
+    "fr": "Tous les états",
+    "es": "Todos los estados",
+    "pl": "Wszystkie stany",
+    "ja": "すべての状態",
+    "ko": "모든 상태",
+    "de": "Alle Status",
+    "sv": "Alla statusar",
+    "it": "Tutti gli stati"
+  },
+  "Active": {
+    "en": "Active",
+    "uk": "Активний",
+    "fr": "Active",
+    "es": "Activa",
+    "pl": "Aktywna",
+    "ja": "有効",
+    "ko": "활성",
+    "de": "Aktiv",
+    "sv": "Aktiv",
+    "it": "Attiva"
+  },
+  "Disabled": {
+    "en": "Disabled",
+    "uk": "Вимкнено",
+    "fr": "Désactivée",
+    "es": "Desactivada",
+    "pl": "Wyłączona",
+    "ja": "無効",
+    "ko": "비활성",
+    "de": "Deaktiviert",
+    "sv": "Inaktiverad",
+    "it": "Disattivata"
+  },
+  "Showing {0}–{1} of {2} relationships": {
+    "en": "Showing {0}–{1} of {2} relationships",
+    "uk": "Показано {0}–{1} із {2} зв’язків",
+    "fr": "Relations {0}–{1} sur {2}",
+    "es": "Mostrando {0}–{1} de {2} relaciones",
+    "pl": "Relacje {0}–{1} z {2}",
+    "ja": "{2} 件中 {0}–{1} 件のリレーションを表示",
+    "ko": "관계 {2}개 중 {0}–{1} 표시",
+    "de": "Beziehungen {0}–{1} von {2}",
+    "sv": "Visar {0}–{1} av {2} relationer",
+    "it": "Relazioni {0}–{1} di {2}"
+  },
+  "No relationships match these filters.": {
+    "en": "No relationships match these filters.",
+    "uk": "Немає зв’язків за цими фільтрами.",
+    "fr": "Aucune relation ne correspond à ces filtres.",
+    "es": "Ninguna relación coincide con estos filtros.",
+    "pl": "Brak relacji pasujących do tych filtrów.",
+    "ja": "条件に一致するリレーションがありません。",
+    "ko": "필터와 일치하는 관계가 없습니다.",
+    "de": "Keine Beziehungen entsprechen diesen Filtern.",
+    "sv": "Inga relationer matchar filtren.",
+    "it": "Nessuna relazione corrisponde ai filtri."
+  },
+  "Updating relationships…": {
+    "en": "Updating relationships…",
+    "uk": "Оновлення зв’язків…",
+    "fr": "Mise à jour des relations…",
+    "es": "Actualizando relaciones…",
+    "pl": "Aktualizowanie relacji…",
+    "ja": "リレーションを更新中…",
+    "ko": "관계 업데이트 중…",
+    "de": "Beziehungen werden aktualisiert…",
+    "sv": "Uppdaterar relationer…",
+    "it": "Aggiornamento delle relazioni…"
+  },
+  "Matched fields": {
+    "en": "Matched fields",
+    "uk": "Відповідні поля",
+    "fr": "Champs correspondants",
+    "es": "Campos coincidentes",
+    "pl": "Pasujące pola",
+    "ja": "一致するフィールド",
+    "ko": "일치하는 필드",
+    "de": "Übereinstimmende Felder",
+    "sv": "Matchande fält",
+    "it": "Campi corrispondenti"
+  },
+  "Source to target": {
+    "en": "Source to target",
+    "uk": "Від джерела до цілі",
+    "fr": "De la source vers la cible",
+    "es": "Del origen al destino",
+    "pl": "Od źródła do celu",
+    "ja": "参照元から参照先へ",
+    "ko": "원본에서 대상으로",
+    "de": "Von Quelle zu Ziel",
+    "sv": "Från källa till mål",
+    "it": "Da origine a destinazione"
+  },
+  "Relationship pages": {
+    "en": "Relationship pages",
+    "uk": "Сторінки зв’язків",
+    "fr": "Pages des relations",
+    "es": "Páginas de relaciones",
+    "pl": "Strony relacji",
+    "ja": "リレーションのページ",
+    "ko": "관계 페이지",
+    "de": "Beziehungsseiten",
+    "sv": "Relationssidor",
+    "it": "Pagine delle relazioni"
+  },
+  "Previous": {
+    "en": "Previous",
+    "uk": "Назад",
+    "fr": "Précédent",
+    "es": "Anterior",
+    "pl": "Poprzednia",
+    "ja": "前へ",
+    "ko": "이전",
+    "de": "Zurück",
+    "sv": "Föregående",
+    "it": "Precedente"
+  },
+  "Page {0} of {1}": {
+    "en": "Page {0} of {1}",
+    "uk": "Сторінка {0} із {1}",
+    "fr": "Page {0} sur {1}",
+    "es": "Página {0} de {1}",
+    "pl": "Strona {0} z {1}",
+    "ja": "{1} ページ中 {0} ページ",
+    "ko": "{1}페이지 중 {0}페이지",
+    "de": "Seite {0} von {1}",
+    "sv": "Sida {0} av {1}",
+    "it": "Pagina {0} di {1}"
+  },
+  "Next": {
+    "en": "Next",
+    "uk": "Далі",
+    "fr": "Suivant",
+    "es": "Siguiente",
+    "pl": "Następna",
+    "ja": "次へ",
+    "ko": "다음",
+    "de": "Weiter",
+    "sv": "Nästa",
+    "it": "Successiva"
+  },
+  "Name matches and inferred keys are suggestions. The export plan validates references.": {
+    "en": "Name matches and inferred keys are suggestions. The export plan validates references.",
+    "uk": "Збіги імен і визначені ключі є припущеннями. План експорту перевіряє посилання.",
+    "fr": "Les correspondances de noms et les clés déduites sont des suggestions. Le plan d’export vérifie les références.",
+    "es": "Las coincidencias de nombres y las claves inferidas son sugerencias. El plan de exportación valida las referencias.",
+    "pl": "Zgodne nazwy i wykryte klucze to sugestie. Plan eksportu sprawdza odwołania.",
+    "ja": "名前の一致と推定キーは候補です。エクスポート計画で参照を検証します。",
+    "ko": "이름 일치와 추론된 키는 제안입니다. 내보내기 계획에서 참조를 검증합니다.",
+    "de": "Namensübereinstimmungen und abgeleitete Schlüssel sind Vorschläge. Der Exportplan prüft die Referenzen.",
+    "sv": "Namnmatchningar och härledda nycklar är förslag. Exportplanen kontrollerar referenserna.",
+    "it": "Le corrispondenze dei nomi e le chiavi dedotte sono suggerimenti. Il piano di esportazione verifica i riferimenti."
+  },
+  "Use relationship {0}.{1} ↔ {2}.{3}": {
+    "en": "Use relationship {0}.{1} ↔ {2}.{3}",
+    "uk": "Використовувати зв’язок {0}.{1} ↔ {2}.{3}",
+    "fr": "Utiliser la relation {0}.{1} ↔ {2}.{3}",
+    "es": "Usar la relación {0}.{1} ↔ {2}.{3}",
+    "pl": "Użyj relacji {0}.{1} ↔ {2}.{3}",
+    "ja": "リレーション {0}.{1} ↔ {2}.{3} を使用",
+    "ko": "관계 {0}.{1} ↔ {2}.{3} 사용",
+    "de": "Beziehung {0}.{1} ↔ {2}.{3} verwenden",
+    "sv": "Använd relationen {0}.{1} ↔ {2}.{3}",
+    "it": "Usa la relazione {0}.{1} ↔ {2}.{3}"
+  },
+  "Home": {
+    "en": "Home",
+    "uk": "Головна",
+    "fr": "Accueil",
+    "es": "Inicio",
+    "pl": "Strona główna",
+    "ja": "ホーム",
+    "ko": "홈",
+    "de": "Startseite",
+    "sv": "Hem",
+    "it": "Home"
+  },
+  "Main navigation": {
+    "en": "Main navigation",
+    "uk": "Основна навігація",
+    "fr": "Navigation principale",
+    "es": "Navegación principal",
+    "pl": "Nawigacja główna",
+    "ja": "メインナビゲーション",
+    "ko": "주 탐색",
+    "de": "Hauptnavigation",
+    "sv": "Huvudnavigering",
+    "it": "Navigazione principale"
+  },
+  "Choose a migration": {
+    "en": "Choose a migration",
+    "uk": "Виберіть міграцію",
+    "fr": "Choisir une migration",
+    "es": "Elige una migración",
+    "pl": "Wybierz migrację",
+    "ja": "移行方法を選択",
+    "ko": "마이그레이션 선택",
+    "de": "Migration auswählen",
+    "sv": "Välj en migrering",
+    "it": "Scegli una migrazione"
+  },
+  "Open workspace": {
+    "en": "Open workspace",
+    "uk": "Відкрити робочу область",
+    "fr": "Ouvrir l’espace de travail",
+    "es": "Abrir área de trabajo",
+    "pl": "Otwórz obszar roboczy",
+    "ja": "ワークスペースを開く",
+    "ko": "작업 공간 열기",
+    "de": "Arbeitsbereich öffnen",
+    "sv": "Öppna arbetsyta",
+    "it": "Apri area di lavoro"
+  },
+  "Choose what to move and where to send it.": {
+    "en": "Choose what to move and where to send it.",
+    "uk": "Виберіть, що перенести та куди надіслати дані.",
+    "fr": "Choisissez les données à déplacer et leur destination.",
+    "es": "Elige qué mover y a dónde enviarlo.",
+    "pl": "Wybierz, co przenieść i dokąd.",
+    "ja": "移行するデータと移行先を選択してください。",
+    "ko": "이동할 데이터와 대상을 선택하세요.",
+    "de": "Wählen Sie aus, was Sie übertragen möchten und wohin.",
+    "sv": "Välj vad du vill flytta och vart.",
+    "it": "Scegli cosa trasferire e dove inviarlo."
+  },
+  "Copy selected tables, collections or keys between database servers.": {
+    "en": "Copy selected tables, collections or keys between database servers.",
+    "uk": "Скопіюйте вибрані таблиці, колекції або ключі між серверами баз даних.",
+    "fr": "Copiez les tables, collections ou clés sélectionnées entre serveurs de bases de données.",
+    "es": "Copia tablas, colecciones o claves seleccionadas entre servidores de bases de datos.",
+    "pl": "Kopiuj wybrane tabele, kolekcje lub klucze między serwerami baz danych.",
+    "ja": "選択したテーブル、コレクション、キーをデータベースサーバー間でコピーします。",
+    "ko": "선택한 테이블, 컬렉션 또는 키를 데이터베이스 서버 간에 복사합니다.",
+    "de": "Kopieren Sie ausgewählte Tabellen, Sammlungen oder Schlüssel zwischen Datenbankservern.",
+    "sv": "Kopiera valda tabeller, samlingar eller nycklar mellan databasservrar.",
+    "it": "Copia tabelle, raccolte o chiavi selezionate tra server di database."
+  },
+  "Move data from an old server to a newer version of the same database engine.": {
+    "en": "Move data from an old server to a newer version of the same database engine.",
+    "uk": "Перенесіть дані зі старого сервера на новішу версію тієї самої СУБД.",
+    "fr": "Transférez les données d’un ancien serveur vers une version plus récente du même système de base de données.",
+    "es": "Traslada datos de un servidor antiguo a una versión más reciente del mismo motor de base de datos.",
+    "pl": "Przenieś dane ze starego serwera do nowszej wersji tego samego silnika bazy danych.",
+    "ja": "古いサーバーから同じデータベースエンジンの新しいバージョンへデータを移行します。",
+    "ko": "이전 서버의 데이터를 같은 데이터베이스 엔진의 새 버전으로 이동합니다.",
+    "de": "Übertragen Sie Daten von einem alten Server auf eine neuere Version derselben Datenbanksoftware.",
+    "sv": "Flytta data från en äldre server till en nyare version av samma databasmotor.",
+    "it": "Trasferisci i dati da un vecchio server a una versione più recente dello stesso motore di database."
+  },
+  "Navigation is available after the current operation finishes.": {
+    "en": "Navigation is available after the current operation finishes.",
+    "uk": "Навігація стане доступною після завершення поточної операції.",
+    "fr": "La navigation sera disponible à la fin de l’opération en cours.",
+    "es": "La navegación estará disponible cuando termine la operación actual.",
+    "pl": "Nawigacja będzie dostępna po zakończeniu bieżącej operacji.",
+    "ja": "現在の操作が完了すると画面を切り替えられます。",
+    "ko": "현재 작업이 끝나면 화면을 이동할 수 있습니다.",
+    "de": "Die Navigation ist nach Abschluss des aktuellen Vorgangs wieder verfügbar.",
+    "sv": "Navigeringen blir tillgänglig när den pågående åtgärden är klar.",
+    "it": "La navigazione sarà disponibile al termine dell’operazione in corso."
+=======
+>>>>>>> Stashed changes
   "Browse table {0}": {
     "en": "Browse table {0}",
     "uk": "Відкрити таблицю {0}",
@@ -7342,5 +7866,9 @@
     "de": "SQL muss 1 bis 196608 Bytes enthalten",
     "sv": "SQL måste innehålla 1 till 196608 byte",
     "it": "SQL deve contenere da 1 a 196608 byte"
+<<<<<<< Updated upstream
+=======
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes
   }
 }

@@ -203,6 +203,51 @@ describe('native SQL imports', () => {
       expect(db.commit).not.toHaveBeenCalled();
     },
   );
+  test.each(['postgres', 'mssql'] as const)(
+    '%s never claims rollback after an uncertain commit',
+    async (dialect) => {
+      const { service, db } = setup();
+      db.commit = jest.fn(() =>
+        Promise.reject(new Error('commit acknowledgement lost')),
+      );
+      const initial = await service.startImport(
+        session,
+        [],
+        options,
+        dialect,
+        input,
+      );
+      const result = await finished(service, dialect, initial.jobId);
+      expect(result.state).toBe('failed');
+      expect(result.error).toContain('Commit outcome could not be confirmed');
+      expect(result.error).not.toContain('All import changes were rolled back');
+      expect(db.rollback).toHaveBeenCalled();
+      expect(db.close).toHaveBeenCalled();
+    },
+  );
+  test.each(['postgres', 'mssql'] as const)(
+    '%s handles a null driver rejection without leaving the job running',
+    async (dialect) => {
+      const { service, db } = setup();
+      const original = db.query;
+      db.query = jest.fn((sql, params) =>
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- Reproduce a malformed driver rejection.
+        sql.startsWith('INSERT') ? Promise.reject(null) : original(sql, params),
+      );
+      const initial = await service.startImport(
+        session,
+        [],
+        options,
+        dialect,
+        input,
+      );
+      const result = await finished(service, dialect, initial.jobId);
+      expect(result.state).toBe('failed');
+      expect(result.error).toContain('All import changes were rolled back');
+      expect(db.rollback).toHaveBeenCalledTimes(1);
+      expect(db.close).toHaveBeenCalledTimes(1);
+    },
+  );
   test('append preserves existing tables and does not modify their constraints', async () => {
     const { service, db, statements } = setup();
     const original = db.query;
@@ -326,3 +371,60 @@ describe('native SQL imports', () => {
     );
   });
 });
+
+test.each(['postgres', 'mssql'] as const)(
+  '%s shutdown waits for rollback and refuses new imports',
+  async (dialect) => {
+    const { service, db } = setup();
+    const original = db.query;
+    let writing = false;
+    let release!: (value: Record<string, unknown>[]) => void;
+    db.query = jest.fn((sql, params) =>
+      sql.startsWith('INSERT')
+        ? new Promise<Record<string, unknown>[]>((resolve) => {
+            writing = true;
+            release = resolve;
+          })
+        : original(sql, params),
+    );
+    const job = await service.startImport(session, [], options, dialect, input);
+    for (let n = 0; !writing && n < 100; n++)
+      await new Promise((resolve) => setImmediate(resolve));
+    expect(writing).toBe(true);
+    let closed = false;
+    const closing = service.onModuleDestroy().then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(closed).toBe(false);
+    release([]);
+    await closing;
+    expect(service.getStatus(dialect, job.jobId).state).toBe('cancelled');
+    expect(db.rollback).toHaveBeenCalledTimes(1);
+    expect(db.commit).not.toHaveBeenCalled();
+    expect(db.close).toHaveBeenCalledTimes(1);
+    await expect(
+      service.startImport(session, [], options, dialect, input),
+    ).rejects.toThrow('stopping');
+  },
+);
+test.each(['postgres', 'mssql'] as const)(
+  '%s shutdown during connection setup closes the late connection without writing',
+  async (dialect) => {
+    const { service, db, connect } = setup();
+    let release!: (value: SqlAdapter) => void;
+    connect.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const start = service.startImport(session, [], options, dialect, input);
+    await service.onModuleDestroy();
+    release(db);
+    await expect(start).rejects.toThrow('stopping');
+    expect(db.begin).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalled();
+    expect(db.close).toHaveBeenCalledTimes(1);
+  },
+);

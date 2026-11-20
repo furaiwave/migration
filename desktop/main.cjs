@@ -83,5 +83,5 @@ if (!app.requestSingleInstanceLock()) {
         })
 
     app.on('window-all-closed', () => app.quit())
-    app.on('will-quit', () => { void host?.close() })
+    require('./graceful-quit.cjs').installGracefulQuit(app, () => host?.close())
 }

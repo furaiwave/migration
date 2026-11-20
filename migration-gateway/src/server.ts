@@ -1,7 +1,19 @@
 import { webAccess, type WebAccess } from './web-access';
 import { NestFactory } from '@nestjs/core';
+<<<<<<< HEAD
+import type { Server } from 'node:http';
+import {
+  ValidationPipe,
+  type LogLevel,
+  type INestApplication,
+} from '@nestjs/common';
+=======
 import { ValidationPipe, type LogLevel } from '@nestjs/common';
 import { json } from 'express';
+<<<<<<< Updated upstream
+=======
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 
@@ -57,7 +69,15 @@ function serveClient(files: ClientFiles) {
 }
 
 export async function startServer(options: ServerOptions) {
+<<<<<<< Updated upstream
   const app = await NestFactory.create(
+=======
+<<<<<<< HEAD
+  const app = await NestFactory.create<INestApplication<Server>>(
+=======
+  const app = await NestFactory.create(
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes
     AppModule,
     options.logger ? { logger: options.logger } : {},
   );
@@ -93,6 +113,11 @@ export async function startServer(options: ServerOptions) {
 
   if (options.client) app.use(serveClient(options.client));
 
+<<<<<<< Updated upstream
+=======
+<<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
   // SQL scripts have a separate, bounded request budget. Other routes keep their default limit.
   const sqlBodyParser = json({ limit: '512kb' });
   app.use(
@@ -101,6 +126,10 @@ export async function startServer(options: ServerOptions) {
       sqlBodyParser(req, res, next),
   );
 
+<<<<<<< Updated upstream
+=======
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes
   await app.listen(options.port, options.host);
   return app;
 }

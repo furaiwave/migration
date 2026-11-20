@@ -37,6 +37,10 @@ describe('database migration orchestration', () => {
   let request: MigrationPlanRequest;
   beforeEach(() => {
     source = {
+      version: jest.fn(async () => ({
+        family: 'mysql' as const,
+        version: '5.6.51',
+      })),
       objects: jest.fn(async () => [structuredClone(object)]),
       read: async function* () {
         yield { id: '9007199254740993' };
@@ -45,6 +49,10 @@ describe('database migration orchestration', () => {
       close: jest.fn(async () => {}),
     };
     target = {
+      version: jest.fn(async () => ({
+        family: 'mysql' as const,
+        version: '8.0.40',
+      })),
       check: jest.fn(async () => {}),
       begin: jest.fn(async () => {}),
       write: jest.fn(async () => true),
@@ -97,11 +105,84 @@ describe('database migration orchestration', () => {
       expect(connectors.target).toHaveBeenLastCalledWith(
         request.target,
         'migration',
+        undefined,
       );
       expect(target.write.mock.calls[0][1]).toEqual({ id: '9007199254740993' });
       expect(target.commit).toHaveBeenCalledTimes(1);
     },
   );
+  test.each([
+    ['mysql', '5.6.51', '8.0.40'],
+    ['mongo', '4.2.24', '8.0.0'],
+    ['postgres', '9.6.24', '16.4'],
+    ['mssql', '12.0.6024.0', '16.0.1000.6'],
+    ['redis', '6.2.14', '7.2.5'],
+  ] as const)(
+    '%s upgrades from %s to %s using detected versions',
+    async (engine, oldVersion, newVersion) => {
+      request.mode = 'upgrade';
+      request.source = connection(engine);
+      request.target = connection(engine);
+      source.version = jest.fn(async () => ({
+        family: engine,
+        version: oldVersion,
+      }));
+      target.version.mockResolvedValue({ family: engine, version: newVersion });
+      const plan = await service.prepare(request);
+      expect(plan).toMatchObject({
+        mode: 'upgrade',
+        sourceVersion: { version: oldVersion },
+        targetVersion: { version: newVersion },
+      });
+      expect(target.begin).not.toHaveBeenCalled();
+      expect((await finish(service.start(plan.id).id)).state).toBe('done');
+      expect(source.version).toHaveBeenCalledTimes(2);
+      expect(target.version).toHaveBeenCalledTimes(2);
+      expect(connectors.target).toHaveBeenLastCalledWith(
+        request.target,
+        'migration',
+        'upgrade',
+      );
+    },
+  );
+  test('upgrade rejects different engines before opening connections', async () => {
+    request.mode = 'upgrade';
+    await expect(service.prepare(request)).rejects.toThrow(
+      'same database engine',
+    );
+    expect(connectors.source).not.toHaveBeenCalled();
+  });
+  test.each(['5.5.62', '5.6.51'])(
+    'upgrade rejects a destination at %s',
+    async (version) => {
+      request.mode = 'upgrade';
+      request.target = connection('mysql');
+      target.version.mockResolvedValue({ family: 'mysql', version });
+      await expect(service.prepare(request)).rejects.toThrow('must be newer');
+      expect(target.begin).not.toHaveBeenCalled();
+      expect(source.close).toHaveBeenCalled();
+      expect(target.close).toHaveBeenCalled();
+    },
+  );
+  test('upgrade rechecks versions before creating any destination objects', async () => {
+    request.mode = 'upgrade';
+    request.target = connection('mysql');
+    const plan = await service.prepare(request);
+    target.version.mockResolvedValue({ family: 'mysql', version: '8.4.0' });
+    const status = await finish(service.start(plan.id).id);
+    expect(status.error).toMatch(/version changed/);
+    expect(target.begin).not.toHaveBeenCalled();
+  });
+  test('upgrade never exposes driver errors from version queries', async () => {
+    request.mode = 'upgrade';
+    request.target = connection('mysql');
+    target.version.mockRejectedValue(new Error('top-secret / private-record'));
+    await expect(service.prepare(request)).rejects.toThrow(
+      'Driver details are hidden',
+    );
+    expect(target.begin).not.toHaveBeenCalled();
+    expect(target.close).toHaveBeenCalled();
+  });
   test('plans are immutable snapshots, single-use and expire', async () => {
     const plan = await service.prepare(request);
     plan.objects[0].targetName = 'tampered';

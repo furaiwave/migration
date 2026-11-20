@@ -1,3 +1,5 @@
+import { GraphqlController } from '../graphql/graphql.controller';
+import { GraphqlService } from '../graphql/graphql.service';
 import { MigrationController } from '../migration/migration.controller';
 import { MigrationService } from '../migration/migration.service';
 import { MigrationConnectors } from '../migration/connectors';
@@ -18,19 +20,29 @@ import { MongoExportService } from './mongo-export.service';
 import { MongoImportService } from './mongo-import.service';
 
 @Module({
-    controllers: [MigrationController, RedisImportController, DbfController, SqlImportController, NativeConnectorController],
-    providers: [MigrationService, MigrationConnectors,
-        RedisImportService,
-        NativeConnectorService,
-        SqlImportService,
-        DbfService,
-        DbfSessionService,
-        DbfRelationshipService,
-        MysqlExportService,
-        MysqlImportService,
-        MongoExportService,
-        MongoImportService,
-    ],
-    exports: [DbfService, DbfSessionService],
+  controllers: [
+    GraphqlController,
+    MigrationController,
+    RedisImportController,
+    DbfController,
+    SqlImportController,
+    NativeConnectorController,
+  ],
+  providers: [
+    GraphqlService,
+    MigrationService,
+    MigrationConnectors,
+    RedisImportService,
+    NativeConnectorService,
+    SqlImportService,
+    DbfService,
+    DbfSessionService,
+    DbfRelationshipService,
+    MysqlExportService,
+    MysqlImportService,
+    MongoExportService,
+    MongoImportService,
+  ],
+  exports: [DbfService, DbfSessionService],
 })
 export class DbfModule {}

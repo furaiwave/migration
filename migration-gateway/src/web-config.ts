@@ -40,6 +40,7 @@ export function webConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
   )
     return fail('PORT');
   const user = env.APP_USER ?? '';
+  // eslint-disable-next-line no-control-regex -- Basic authentication usernames cannot contain controls or a colon.
   if (!user || user.length > 256 || /[:\x00-\x1f\x7f]/.test(user))
     return fail('APP_USER');
   if (env.APP_PASSWORD !== undefined && env.APP_PASSWORD_FILE !== undefined)
@@ -57,6 +58,7 @@ export function webConfig(env: NodeJS.ProcessEnv = process.env): WebConfig {
   if (
     Buffer.byteLength(password) < 16 ||
     Buffer.byteLength(password) > 8192 ||
+    // eslint-disable-next-line no-control-regex -- Reject control characters in credentials.
     /[\x00-\x1f\x7f]/.test(password)
   )
     return fail('APP_PASSWORD (16–8192 UTF-8 bytes, no control characters)');

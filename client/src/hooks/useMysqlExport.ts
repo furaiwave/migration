@@ -1,3 +1,4 @@
+import { trackStartedFileImport } from '@/lib/fileImportJobs';
 import { apiRequest, ApiError } from "@/client/client";
 import type {
     MysqlConnectionInfo,
@@ -55,7 +56,7 @@ async function importIntoMysql(input: MysqlImportInput): Promise<MysqlImportStat
     return apiRequest('POST /dbf/session/:id/mysql/import', {
         params: { id: input.sessionId },
         body: { ...requestOptions(input.options), ...input.connection },
-    })
+    }).then((status) => trackStartedFileImport(input.sessionId, 'mysql', status))
 }
 
 export function useMysqlTestConnection() {

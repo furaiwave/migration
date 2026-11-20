@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { apiRequest, ApiError } from "@/client/client";
 import type {
   Engine,
+  MigrationMode,
   MigrationConnection,
   MigrationObject,
   MigrationPlan,
@@ -14,9 +15,11 @@ import {
   savedMigrationJob as savedJob,
   rememberMigrationJob as rememberJob,
   forgetMigrationJob,
+  mergeMigrationStatus,
 } from "@/lib/databaseMigration";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { NativeSchemaInspector } from "./NativeSchemaInspector";
 
 const engines: { value: Engine; label: string; port: number }[] = [
   { value: "mysql", label: "MySQL / MariaDB", port: 3306 },
@@ -25,13 +28,19 @@ const engines: { value: Engine; label: string; port: number }[] = [
   { value: "mssql", label: "Microsoft SQL Server", port: 1433 },
   { value: "redis", label: "Redis", port: 6379 },
 ];
-const initialConnection = (): MigrationConnection => ({
-  engine: "mysql",
+const initialConnection = (engine: Engine = "mysql"): MigrationConnection => ({
+  engine,
   host: "127.0.0.1",
-  port: 3306,
+  port: engines.find((item) => item.value === engine)!.port,
   user: "",
   password: "",
-  database: "",
+  database: engine === "redis" ? "0" : "",
+  uri:
+    engine === "redis"
+      ? "redis://127.0.0.1:6379/0"
+      : engine === "mongo"
+        ? "mongodb://127.0.0.1:27017"
+        : undefined,
   encrypt: true,
   trustServerCertificate: false,
 });
@@ -40,11 +49,13 @@ function ConnectionForm({
   title,
   value,
   disabled,
+  engineLocked = false,
   onChange,
 }: {
   title: string;
   value: MigrationConnection;
   disabled: boolean;
+  engineLocked?: boolean;
   onChange(value: MigrationConnection): void;
 }) {
   const change = (field: Partial<MigrationConnection>) =>
@@ -60,21 +71,11 @@ function ConnectionForm({
         {translate("Database")}
         <select
           className="h-10 border bg-background px-2 text-sm"
+          disabled={engineLocked}
           value={value.engine}
           onChange={(event) => {
             const engine = event.target.value as Engine;
-            onChange({
-              ...initialConnection(),
-              engine,
-              port: engines.find((item) => item.value === engine)!.port,
-              database: engine === "redis" ? "0" : "",
-              uri:
-                engine === "redis"
-                  ? "redis://127.0.0.1:6379/0"
-                  : engine === "mongo"
-                    ? "mongodb://127.0.0.1:27017"
-                    : undefined,
-            });
+            onChange(initialConnection(engine));
           }}
         >
           {engines.map((engine) => (
@@ -166,16 +167,26 @@ function ConnectionForm({
           </label>
         </div>
       )}
+      <NativeSchemaInspector
+        connection={value}
+        disabled={disabled}
+        title={translate("Database structure")}
+      />
     </fieldset>
   );
 }
 
 export function DatabaseMigrationPanel({
+  mode,
+  onModeChange,
   onBusy,
 }: {
-  onBusy(value: boolean): void;
+  mode: MigrationMode;
+  onModeChange(mode: MigrationMode): void;
+  onBusy(value: boolean, activeJob: boolean): void;
 }) {
   useLanguage();
+  const [settingsMode, setSettingsMode] = useState(mode);
   const [source, setSource] = useState(initialConnection);
   const [target, setTarget] = useState(initialConnection);
   const [objects, setObjects] = useState<MigrationObject[] | null>(null);
@@ -195,9 +206,21 @@ export function DatabaseMigrationPanel({
   const locked = pending || running;
   const expired = !!plan && Date.parse(plan.expiresAt) <= now;
 
+  // Keep connection edits mounted across pages, but a changed workflow needs a new plan.
+  if (settingsMode !== mode) {
+    setSettingsMode(mode);
+    setPlan(null);
+    setAccepted(false);
+    setError(null);
+    if (mode === "upgrade" && target.engine !== source.engine) {
+      setTarget(initialConnection(source.engine));
+      setSchema("");
+    }
+  }
+  const activeJob = status?.state === "running";
   useEffect(() => {
-    onBusy(locked);
-  }, [locked, onBusy]);
+    onBusy(locked, activeJob);
+  }, [locked, activeJob, onBusy]);
   useEffect(() => {
     if (!plan) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -213,7 +236,9 @@ export function DatabaseMigrationPanel({
           params: { id: jobId },
         });
         if (disposed) return;
-        setStatus(result);
+        setStatus((current) =>
+          current ? mergeMigrationStatus(current, result) : result,
+        );
         setPollError(null);
         if (result.state === "running")
           timer = setTimeout(() => {
@@ -266,6 +291,7 @@ export function DatabaseMigrationPanel({
     try {
       const result = await apiRequest("POST /dbf/migration/plan", {
         body: {
+          mode,
           source,
           target,
           objects: selected,
@@ -303,11 +329,10 @@ export function DatabaseMigrationPanel({
   const cancel = async () => {
     if (!jobId) return;
     try {
-      setStatus(
-        await apiRequest("DELETE /dbf/migration/jobs/:id", {
-          params: { id: jobId },
-        }),
-      );
+      const result = await apiRequest("DELETE /dbf/migration/jobs/:id", {
+        params: { id: jobId },
+      });
+      setStatus((current) => mergeMigrationStatus(current, result));
     } catch (cause) {
       setError(errorMessage(cause));
     }
@@ -317,7 +342,11 @@ export function DatabaseMigrationPanel({
       <div className="workspace-intro">
         <div>
           <p className="workspace-eyebrow">DATABASE / MIGRATION WORKSPACE</p>
-          <h2>{translate("Between databases")}</h2>
+          <h2>
+            {translate(
+              mode === "upgrade" ? "Version upgrade" : "Between databases",
+            )}
+          </h2>
           <p className="workspace-description">
             {translate(
               "Choose a source and destination, review the plan and migrate your data.",
@@ -325,20 +354,53 @@ export function DatabaseMigrationPanel({
           </p>
         </div>
       </div>
+      <label className="flex max-w-sm flex-col gap-1 text-xs">
+        {translate("Migration mode")}
+        <select
+          aria-label={translate("Migration mode")}
+          className="h-10 border bg-background px-2 text-sm"
+          value={mode}
+          disabled={locked}
+          onChange={(event) =>
+            onModeChange(event.target.value as MigrationMode)
+          }
+        >
+          <option value="transfer">{translate("Between databases")}</option>
+          <option value="upgrade">{translate("Version upgrade")}</option>
+        </select>
+      </label>
+      {mode === "upgrade" && (
+        <p className="text-sm text-muted-foreground">
+          {translate(
+            "Copy data from an older server to an already installed newer server of the same database family. Versions are detected when building the plan. Review type conversions and schema limitations before switching applications.",
+          )}
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         <ConnectionForm
-          title={translate("Source")}
+          title={
+            mode === "upgrade" ? translate("Old server") : translate("Source")
+          }
           value={source}
           disabled={locked}
           onChange={(value) => {
             setSource(value);
+            if (mode === "upgrade" && value.engine !== target.engine) {
+              setTarget(initialConnection(value.engine));
+              setSchema("");
+            }
             setObjects(null);
             setSelected([]);
             invalidate();
           }}
         />
         <ConnectionForm
-          title={translate("Destination")}
+          title={
+            mode === "upgrade"
+              ? translate("New server")
+              : translate("Destination")
+          }
+          engineLocked={mode === "upgrade"}
           value={target}
           disabled={locked}
           onChange={(value) => {
@@ -372,7 +434,7 @@ export function DatabaseMigrationPanel({
             />
           </label>
         )}
-        {target.engine === "redis" && (
+        {target.engine === "redis" && mode !== "upgrade" && (
           <label className="flex flex-col gap-1 text-xs">
             {translate("Key prefix")}
             <Input
@@ -469,9 +531,7 @@ export function DatabaseMigrationPanel({
                         <td className="p-2">
                           <Input
                             aria-label={
-                              translate("Destination name") +
-                              ": " +
-                              object.name
+                              translate("Destination name") + ": " + object.name
                             }
                             disabled={locked || !selection}
                             value={selection?.targetName ?? object.name}
@@ -521,6 +581,14 @@ export function DatabaseMigrationPanel({
             </div>
           </div>
           <div className="workspace-card-body flex flex-col gap-4">
+            {plan.sourceVersion && plan.targetVersion && (
+              <p className="text-sm font-semibold" role="status">
+                {engines.find(
+                  (item) => item.value === plan.sourceVersion!.family,
+                )?.label ?? "MariaDB"}{" "}
+                {plan.sourceVersion.version} → {plan.targetVersion.version}
+              </p>
+            )}
             {plan.objects.map((object) => (
               <details key={object.source.id} className="border p-3">
                 <summary className="cursor-pointer text-sm">
@@ -599,10 +667,11 @@ export function DatabaseMigrationPanel({
                 </p>
                 <p className="text-xs">{status.object}</p>
                 <p className="font-mono text-xs">
-                  {translate(
-                    "Read: {0} · written: {1} · skipped: {2}",
-                    [status.read, status.written, status.skipped],
-                  )}
+                  {translate("Read: {0} · written: {1} · skipped: {2}", [
+                    status.read,
+                    status.written,
+                    status.skipped,
+                  ])}
                 </p>
                 {status.error && (
                   <p className="text-xs text-destructive">{status.error}</p>

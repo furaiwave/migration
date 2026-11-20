@@ -1,3 +1,6 @@
+import { useFileImportRecovery } from '@/hooks/useFileImportRecovery';
+import { trackStartedFileImport } from '@/lib/fileImportJobs';
+import { useImportActivity } from '@/lib/importActivity';
 import { useEffect, useState } from "react";
 import { translate } from "@/i18n";
 import { apiRequest } from "@/client/client";
@@ -42,7 +45,9 @@ const begin = ({
   apiRequest("POST /dbf/session/:id/redis/import", {
     params: { id: sessionId },
     body: { ...options, uri },
-  });
+  }).then((status) => trackStartedFileImport(sessionId, 'redis', status));
+const fetchRedisJob = (jobId: string) =>
+  apiRequest('GET /dbf/redis/import/:jobId', { params: { jobId } });
 export function RedisImportPanel({
   sessionId,
   graph,
@@ -69,7 +74,15 @@ export function RedisImportPanel({
   const [job, setJob] = useState<RedisImportStatus | null>(null);
   const [pollError, setPollError] = useState<unknown>(null);
   const [cancelling, setCancelling] = useState(false);
-  const busy = test.isPending || run.isPending || job?.state === "running";
+  const recovery = useFileImportRecovery({
+    sessionId,
+    engine: 'redis',
+    job,
+    load: fetchRedisJob,
+    onRestore: setJob,
+  });
+  useImportActivity(recovery.restoring || run.isPending || job?.state === "running");
+  const busy = recovery.restoring || test.isPending || run.isPending || job?.state === "running";
   useNativeSelection(
     "redis",
     (server) => {
@@ -291,6 +304,15 @@ export function RedisImportPanel({
             {errorMessage(state.error)}
           </p>
         ) : null,
+      )}
+      {recovery.restoring && (
+        <p role="status" className="text-xs text-muted-foreground">{translate("Checking…")}</p>
+      )}
+      {recovery.error != null && (
+        <p role="alert" className="text-xs text-destructive">{errorMessage(recovery.error)}</p>
+      )}
+      {recovery.missing && !job && (
+        <p role="alert" className="text-xs text-destructive">{lostImportMessage()}</p>
       )}
       {planRun.isPending && (
         <p className="text-xs text-muted-foreground">

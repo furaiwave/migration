@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
@@ -50,6 +51,7 @@ interface Job {
   database: string;
   startedAt: number;
   finishedAt?: number;
+  done?: Promise<void>;
   state: SqlImportStatus['state'];
   cancel: boolean;
   error?: string;
@@ -151,7 +153,19 @@ export function parameterValue(
 @Injectable()
 export class SqlImportService {
   private readonly jobs = new Map<string, Job>();
+  private stopping = false;
   constructor(private readonly sourceService: MysqlExportService) {}
+  async onModuleDestroy(): Promise<void> {
+    this.stopping = true;
+    for (const job of this.jobs.values()) job.cancel = true;
+    await Promise.allSettled(
+      [...this.jobs.values()].map((job) => job.done ?? Promise.resolve()),
+    );
+  }
+  private checkRunning(): void {
+    if (this.stopping)
+      throw new ServiceUnavailableException('The import service is stopping');
+  }
 
   prepare(
     session: DbfSession,
@@ -337,6 +351,7 @@ export class SqlImportService {
     dialect: SqlDialect,
     input: SqlConnectionInput,
   ): Promise<SqlImportStatus> {
+    this.checkRunning();
     if (options.writeMode !== 'replace' && options.writeMode !== 'append')
       throw new BadRequestException('Only replace and append are supported');
     const { source, plan } = this.prepare(
@@ -362,6 +377,10 @@ export class SqlImportService {
             );
       }
     const db = await this.connect(dialect, input);
+    if (this.stopping) {
+      await db.close().catch(() => {});
+      this.checkRunning();
+    }
     for (const [id, job] of this.jobs)
       if (job.finishedAt && Date.now() - job.finishedAt > 3600000)
         this.jobs.delete(id);
@@ -386,7 +405,7 @@ export class SqlImportService {
       },
     };
     this.jobs.set(job.id, job);
-    void this.run(job, source, plan, options, db);
+    job.done = this.run(job, source, plan, options, db);
     return this.status(job);
   }
 
@@ -432,6 +451,7 @@ export class SqlImportService {
       if (job.cancel) throw new Cancelled();
     };
     let transaction = false;
+    let commitStarted = false;
     try {
       await db.begin();
       transaction = true;
@@ -620,6 +640,7 @@ export class SqlImportService {
           : 'SELECT @@VERSION AS version',
       );
       check();
+      commitStarted = true;
       await db.commit();
       transaction = false;
       job.result = {
@@ -642,14 +663,14 @@ export class SqlImportService {
       if (transaction) {
         try {
           await db.rollback();
-          rolledBack = true;
+          rolledBack = !commitStarted;
         } catch {
           /* Connection may have been lost. */
         }
       }
       job.state = err instanceof Cancelled ? 'cancelled' : 'failed';
       // Never expose source row values, SQL parameters, or connection credentials.
-      const code = (err as { code?: string | number }).code;
+      const code = (err as { code?: string | number } | null | undefined)?.code;
       job.error =
         (err instanceof Cancelled
           ? 'Import cancelled.'
@@ -659,9 +680,11 @@ export class SqlImportService {
               : '') +
             (job.progress.table ? ' at ' + job.progress.table : '') +
             '.') +
-        (rolledBack
-          ? ' All import changes were rolled back.'
-          : 'Rollback could not be confirmed; check the database before retrying.');
+        (commitStarted
+          ? ' Commit outcome could not be confirmed; check the database before retrying.'
+          : rolledBack
+            ? ' All import changes were rolled back.'
+            : ' Rollback could not be confirmed; check the database before retrying.');
     } finally {
       job.finishedAt = Date.now();
       await db.close().catch(() => {});

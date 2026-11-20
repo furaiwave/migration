@@ -1,5 +1,6 @@
 import { createConnection, type Connection as MysqlConnection } from 'mysql2';
 import { Client, types as pgTypes } from 'pg';
+import { serverVersion } from './versions';
 import type * as Mssql from 'mssql';
 import type {
   MigrationConnection,
@@ -202,7 +203,13 @@ export async function connectSql(
       };
       signal.addEventListener('abort', abort, { once: true });
       // The stream forwards request errors; consume the query promise to avoid an unhandled rejection.
-      void req.query(sql).catch((error) => stream.destroy(error));
+      void req
+        .query(sql)
+        .catch((error: unknown) =>
+          stream.destroy(
+            error instanceof Error ? error : new Error('SQL query failed'),
+          ),
+        );
       try {
         signal.throwIfAborted();
         for await (const row of stream) {
@@ -262,11 +269,25 @@ export function columnFromMetadata(row: Row): MigrationColumn {
   }
   return column;
 }
+async function sqlVersion(db: SqlConnection, input: MigrationConnection) {
+  const query =
+    input.engine === 'mssql'
+      ? "SELECT CAST(SERVERPROPERTY('ProductVersion') AS varchar(128)) AS version"
+      : input.engine === 'postgres'
+        ? "SELECT current_setting('server_version') AS version"
+        : 'SELECT VERSION() AS version';
+  const rows = await db.query(query);
+  return serverVersion(input.engine, rows[0]?.version);
+}
+
 export class SqlSource implements Source {
   constructor(
     private readonly db: SqlConnection,
     private readonly input: MigrationConnection,
   ) {}
+  version() {
+    return sqlVersion(this.db, this.input);
+  }
   async objects(): Promise<MigrationObject[]> {
     const engine = this.input.engine;
     const mysql = engine === 'mysql';
@@ -305,6 +326,10 @@ export class SqlSource implements Source {
     const columns = object.columns
       .map((column) => {
         const name = identifier(column.name, engine);
+        // money output follows lc_monetary. Convert inside PostgreSQL before
+        // serializing exact decimal text so currencies and separators never reach INSERT.
+        if (engine === 'postgres' && column.kind === 'decimal')
+          return 'CAST(CAST(' + name + ' AS numeric) AS text) AS ' + name;
         // Use server text for arrays and custom types so driver parsers cannot round nested numbers.
         if (engine === 'postgres' && column.kind === 'text')
           return 'CAST(' + name + ' AS text) AS ' + name;
@@ -316,7 +341,11 @@ export class SqlSource implements Source {
           return (
             'CONVERT(nvarchar(max),' +
             name +
-            (['date', 'datetime'].includes(column.kind) ? ',127' : '') +
+            (['date', 'datetime'].includes(column.kind)
+              ? ',127'
+              : column.kind === 'decimal'
+                ? ',2'
+                : '') +
             ') AS ' +
             name
           );
@@ -365,6 +394,9 @@ export class SqlTarget implements Target {
     private readonly db: SqlConnection,
     private readonly input: MigrationConnection,
   ) {}
+  version() {
+    return sqlVersion(this.db, this.input);
+  }
   async check(objects: PlannedObject[]) {
     const engine = this.input.engine;
     for (const object of objects) {

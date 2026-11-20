@@ -25,7 +25,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { MigrationService } from './migration.service';
-import type { Engine } from './migration.types';
+import type { Engine, MigrationMode } from './migration.types';
 
 export class ConnectionDto {
   @IsIn(['mysql', 'mongo', 'postgres', 'mssql', 'redis']) engine!: Engine;
@@ -43,6 +43,7 @@ class SelectionDto {
   @IsString() @MinLength(1) @MaxLength(128) targetName!: string;
 }
 export class PlanDto {
+  @IsOptional() @IsIn(['transfer', 'upgrade']) mode?: MigrationMode;
   @IsDefined()
   @ValidateNested()
   @Type(() => ConnectionDto)

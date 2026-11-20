@@ -161,6 +161,8 @@ async function main() {
     assert.equal(await evaluate('document.title'), 'Data Migrator');
     assert.doesNotMatch(await evaluate('document.body.innerText'), /dbf/i, 'public names are format-neutral');
     await choose('en');
+    await evaluate("document.querySelector('[data-workspace-link=files]').click()");
+    await waitFor("document.querySelector('[data-workspace-link=files]').getAttribute('aria-current') === 'page'");
     if (process.env.WEB_TEST_CLOUD === '1') {
       assert.ok((await evaluate('document.body.innerText')).includes('Discovery and connections run on the cloud server.'));
       console.log('PASS: cloud mode explains where discovery and database connections run.');
@@ -273,9 +275,16 @@ async function main() {
     await evaluate("Array.from(("+redisPanel+").querySelectorAll('button')).find(b=>b.textContent.includes('Test connection')).click()");
     await waitFor('('+redisPanel+').innerText.includes("redis-test")');
     await evaluate("Array.from(("+redisPanel+").querySelectorAll('button')).find(b=>b.textContent.includes('→')).click()");
+    await waitFor("Array.from(document.querySelectorAll('header button')).find(button=>button.textContent.trim()==='New session')?.disabled === true");
+    assert.equal(await evaluate("document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') === 'true'"),true,'an active file import keeps its session and progress visible');
+    await evaluate("Array.from(document.querySelectorAll('header button')).find(button=>button.textContent.trim()==='New session').click()");
+    assert.equal(await evaluate("localStorage.getItem('dbf-inspector:last-session')"),'i18n-smoke');
     await waitFor('('+redisPanel+').innerText.includes("Written: 1; skipped: 0.")');
     assert.equal(redisPayloads.length,1);assert.equal(redisPayloads[0].uri,'redis://localhost:6379/0');assert.equal(redisPayloads[0].prefix,'data');assert.equal(redisPayloads[0].writeMode,'new');
     assert.equal((await evaluate("localStorage.getItem('dbf-inspector:native-target') || ''")).includes('redis://'),false);
+    await waitFor("Array.from(document.querySelectorAll('header button')).find(button=>button.textContent.trim()==='New session')?.disabled === false");
+    assert.equal(await evaluate("document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') === 'true'"),false);
+    console.log('PASS: active file imports block session reset and source switching, then release them on completion.');
     console.log('PASS: Redis hash plan, Rust connection test, import polling and written/skipped result.');
     for (const dialect of ['postgres', 'mssql']) {
       const label = dialect === 'postgres' ? 'PostgreSQL' : 'MSSQL';
@@ -290,11 +299,14 @@ async function main() {
       await evaluate("Array.from((" + panel + ").querySelectorAll('button')).find(b => b.textContent.includes('Test connection')).click()");
       await waitFor('(' + panel + ').innerText.includes(' + JSON.stringify(dialect + '-test') + ')');
       await evaluate("Array.from((" + panel + ").querySelectorAll('button')).find(b => b.textContent.includes('→')).click()");
+      await waitFor("Array.from(document.querySelectorAll('header button')).find(button=>button.textContent.trim()==='New session')?.disabled === true");
       await waitFor('(' + panel + ').innerText.includes("done")');
+      await waitFor("Array.from(document.querySelectorAll('header button')).find(button=>button.textContent.trim()==='New session')?.disabled === false");
+
 
       await evaluate("Array.from((" + panel + ").querySelectorAll('button')).find(b => b.textContent.includes('View structure')).click()");
       await waitFor('(' + panel + ').innerText.includes("clients_existing")');
-      await evaluate("Array.from((" + panel + ").querySelectorAll('summary')).find(s => s.textContent.includes('clients_existing')).click()");
+      await evaluate("Array.from((" + panel + ").querySelectorAll('[role=treeitem]')).find(s => s.dataset.name === 'clients_existing').click()");
       await waitFor('(' + panel + ').innerText.includes("ID_native") && (' + panel + ').innerText.includes("bigint")');
       await evaluate("(() => { const original=URL.createObjectURL; URL.createObjectURL=blob=>{window.__schemaBlob=blob;return original(blob);}; HTMLAnchorElement.prototype.click=function(){}; })()");
       await evaluate("Array.from((" + panel + ").querySelectorAll('button')).find(b => b.textContent.includes('Download structure .json')).click()");

@@ -45,7 +45,7 @@ API: POST /dbf/native/catalog. The body is the connection object without an oute
 
 ### Destination structure inspection
 
-The inspect command reads metadata from the selected database. Each import form includes a **Destination database structure** panel with an **Inspect structure** button. For SQL engines, specify an existing destination database first.
+The inspect command reads metadata from the selected database. Each import form includes a **Destination database structure** panel with a **View structure** button. For SQL engines, specify an existing destination database first.
 
 - PostgreSQL, MySQL/MariaDB and MSSQL: schemas, tables, views, column names, data types, nullability and column order.
 - MongoDB: collection and view names. Documents are not read and fields are not inferred. It uses the explicitly specified database, the URI database or admin when no name is supplied.
@@ -55,6 +55,10 @@ The inspect command reads metadata from the selected database. Each import form 
 The report includes engine, database, elapsedMs, objects and truncated. Each column in objects has name, dataType, nullable and ordinal. Table rows, document values, passwords and URIs are not included.
 
 Limits are 200 objects, 2000 metadata rows and 768,000 bytes for the objects JSON array. When a limit is reached, truncated=true and the last table may have an incomplete column list. The interface displays a warning. The operation is limited to 12 seconds. It does not automatically import data, modify structures or read table rows.
+
+The connected database tree is also available inside both connection forms in **Between databases**. Expand a database, schema, table or view to browse its column metadata. Search by schema, object, column or data type; matches retain their ancestors. **Expand all** and **Collapse all** control the branches. Arrow keys, Home, End, Enter and Space work within the tree. **Refresh structure** reads a new snapshot. Table names remain distinct across schemas, and metadata limit warnings remain visible.
+
+MySQL uses its selected database as the schema level. MongoDB shows collections/views without reading documents or inventing SQL columns. Redis connections show their selected database and a keys node through the existing migration catalog; the tree does not scan or display key values.
 
 **Download structure .json** saves the current snapshot as schema-<database>.json. Changing connection settings hides the previous report. Request a new snapshot after server-side schema changes.
 

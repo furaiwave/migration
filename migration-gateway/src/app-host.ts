@@ -1,6 +1,6 @@
-import * as net from 'net'
-import { startServer } from './server'
-import { clientFromDir } from './client-files'
+import * as net from 'net';
+import { startServer } from './server';
+import { clientFromDir } from './client-files';
 
 /**
  * Entry for the desktop app (see desktop/): the API and the built web client on one local address,
@@ -9,38 +9,47 @@ import { clientFromDir } from './client-files'
 
 export interface AppHostOptions {
   /** Folder with the client build (vite build with VITE_API_BASE=/). */
-  readonly clientDir: string
+  readonly clientDir: string;
   /** Kept stable so the page's address, and with it the remembered session, survives restarts. */
-  readonly preferredPort: number
-  readonly host?: string
+  readonly preferredPort: number;
+  readonly host?: string;
 }
 
 export interface AppHost {
-  readonly url: string
-  close(): Promise<void>
+  readonly url: string;
+  close(): Promise<void>;
 }
 
 /** The port bound by a probe: the given one, a free one for 0, or null when it is taken. */
 function probePort(port: number, host: string): Promise<number | null> {
   return new Promise((resolve) => {
-    const probe = net.createServer()
-    probe.once('error', () => resolve(null))
+    const probe = net.createServer();
+    probe.once('error', () => resolve(null));
     probe.listen(port, host, () => {
-      const address = probe.address()
-      const bound = typeof address === 'object' && address ? address.port : port
-      probe.close(() => resolve(bound))
-    })
-  })
+      const address = probe.address();
+      const bound =
+        typeof address === 'object' && address ? address.port : port;
+      probe.close(() => resolve(bound));
+    });
+  });
 }
 
 export async function startApp(options: AppHostOptions): Promise<AppHost> {
-  const host = options.host ?? '127.0.0.1'
-  const port = (await probePort(options.preferredPort, host)) ?? (await probePort(0, host))
-  if (port === null) throw new Error("Could not find an available port.")
+  const host = options.host ?? '127.0.0.1';
+  const port =
+    (await probePort(options.preferredPort, host)) ??
+    (await probePort(0, host));
+  if (port === null) throw new Error('Could not find an available port.');
 
-  const url = `http://${host}:${port}`
+  const url = `http://${host}:${port}`;
   // The page and the API share one address; localhost is the same server under its other name.
-  const origins = [url, `http://localhost:${port}`]
-  const app = await startServer({ host, port, origins, client: clientFromDir(options.clientDir), logger: ['error', 'warn'] })
-  return { url, close: () => app.close() }
+  const origins = [url, `http://localhost:${port}`];
+  const app = await startServer({
+    host,
+    port,
+    origins,
+    client: clientFromDir(options.clientDir),
+    logger: ['error', 'warn'],
+  });
+  return { url, close: () => app.close() };
 }

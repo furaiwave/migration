@@ -5,16 +5,19 @@ import type {
   MigrationColumn,
   MigrationObject,
   PlannedObject,
+  ServerVersion,
 } from './migration.types';
 
 export type Row = Record<string, unknown>;
 export class MigrationError extends Error {}
 export interface Source {
+  version(): Promise<ServerVersion>;
   objects(): Promise<MigrationObject[]>;
   read(object: MigrationObject, signal: AbortSignal): AsyncIterable<Row>;
   close(): Promise<void>;
 }
 export interface Target {
+  version(): Promise<ServerVersion>;
   check(objects: PlannedObject[]): Promise<void>;
   begin(objects: PlannedObject[]): Promise<void>;
   write(object: PlannedObject, row: Row, ordinal: number): Promise<boolean>;
@@ -63,14 +66,31 @@ export function sqlType(column: MigrationColumn, engine: Engine): string {
           : engine === 'mysql'
             ? 'longtext'
             : 'nvarchar(max)';
-      const precision = column.precision;
-      const scale = column.scale ?? 0;
+      const sourcePrecision = column.precision;
+      const sourceScale = column.scale ?? 0;
+      // PostgreSQL permits negative scales and scales larger than precision. Widen
+      // those declarations to portable decimal capacity without rounding values.
+      const scale = Math.max(0, sourceScale);
+      const precision = Math.max(
+        sourcePrecision - Math.min(0, sourceScale),
+        scale,
+      );
       const max = engine === 'mssql' ? 38 : engine === 'mysql' ? 65 : 1000;
-      if (precision > max || scale > precision || scale < 0)
+      if (
+        !Number.isInteger(sourcePrecision) ||
+        sourcePrecision < 1 ||
+        !Number.isInteger(sourceScale) ||
+        (engine !== 'postgres' && precision > max) ||
+        (engine === 'mysql' && scale > 30)
+      )
         throw new BadRequestException(
           column.name +
             ': decimal precision cannot be represented by the destination',
         );
+      // A valid PostgreSQL numeric(1000,-1000) needs more than 1000 digits
+      // after widening. Unbounded numeric keeps that capacity on older targets too.
+      if (engine === 'postgres' && (precision > max || scale > max))
+        return 'numeric';
       return 'decimal(' + precision + ',' + scale + ')';
     }
     case 'float':

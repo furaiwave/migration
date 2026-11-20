@@ -1,3 +1,5 @@
+import { useFileImportRecovery } from '@/hooks/useFileImportRecovery';
+import { useImportActivity } from '@/lib/importActivity';
 import { mergeImportStatus } from "@/lib/importStatus";
 import { NativeSchemaInspector } from "./NativeSchemaInspector";
 import { isMissingImportJob, lostImportMessage } from "@/lib/importPolling";
@@ -33,6 +35,10 @@ const DEFAULTS: SqlImportOptions = {
   emptyStringsAsNull: true,
   orphansAsNull: true,
 };
+const statusReaders = {
+  postgres: (jobId: string) => fetchSqlImport('postgres', jobId),
+  mssql: (jobId: string) => fetchSqlImport('mssql', jobId),
+};
 export function SqlImportPanel({
   dialect,
   sessionId,
@@ -66,8 +72,16 @@ export function SqlImportPanel({
   const [job, setJob] = useState<MysqlImportStatus | null>(null);
   const [pollError, setPollError] = useState<unknown>(null);
   const [cancelling, setCancelling] = useState(false);
+  const recovery = useFileImportRecovery({
+    sessionId,
+    engine: dialect,
+    job,
+    load: statusReaders[dialect],
+    onRestore: setJob,
+  });
+  useImportActivity(recovery.restoring || run.isPending || job?.state === "running");
   const busy =
-    catalog.isPending ||
+    recovery.restoring || catalog.isPending ||
     run.isPending ||
     test.isPending ||
     job?.state === "running";
@@ -381,6 +395,15 @@ export function SqlImportPanel({
           {translate("Import")} → {name}
         </Button>
       </div>
+      {recovery.restoring && (
+        <p role="status" className="text-xs text-muted-foreground">{translate("Checking…")}</p>
+      )}
+      {recovery.error != null && (
+        <p role="alert" className="text-xs text-destructive">{errorMessage(recovery.error)}</p>
+      )}
+      {recovery.missing && !job && (
+        <p role="alert" className="text-xs text-destructive">{lostImportMessage()}</p>
+      )}
       {(test.isPending || run.isPending || planState.status === "pending") && (
         <p className="text-xs text-muted-foreground">
           {translate("Checking data and connecting…")}

@@ -61,6 +61,20 @@ function dbf() {
   assert.equal((await request('/bad%zz')).status, 404);
   assert.equal((await request('/dbf/native/servers', { headers: { Origin: 'https://other.example.test' } })).status, 403);
   console.log('PASS: web page, assets and API require authentication; health, origin checks and malformed URLs work.');
+  assert.equal((await fetch(url + '/dbf/graphql/schema')).status, 401);
+  assert.equal((await fetch(url + '/dbf/graphql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: '{__typename}' }) })).status, 401);
+  const graphqlBody = JSON.stringify({ query: '{__schema {queryType {name} mutationType {name}}}' });
+  const graphql = await request('/dbf/graphql', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/graphql-response+json' }, body: graphqlBody });
+  assert.equal(graphql.status, 200);
+  assert.equal(graphql.headers.get('cache-control'), 'no-store');
+  assert.deepEqual((await graphql.json()).data, { __schema: { queryType: { name: 'Query' }, mutationType: { name: 'Mutation' } } });
+  assert.equal((await request('/dbf/graphql', { method: 'POST', headers: { Origin: 'https://other.example.test', 'Content-Type': 'application/json' }, body: graphqlBody })).status, 403);
+  assert.equal((await request('/dbf/graphql')).status, 405);
+  const schema = await request('/dbf/graphql/schema');
+  assert.equal(schema.status, 200);
+  assert.match(schema.headers.get('content-type'), /text\/plain/);
+  assert.match(await schema.text(), /type Mutation/);
+  console.log('PASS: GraphQL schema and execution share authentication, Origin checks and no-store responses; introspection works in the actual web process.');
   const diagnostic = await request('/dbf/native/diagnose', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ host: '127.0.0.1', port: Number(new URL(url).port) }) });
   assert.equal(diagnostic.status, 200); assert.equal((await diagnostic.json()).status, 'reachable');
   console.log('PASS: the packaged Rust connector performs real TCP diagnostics.');
@@ -76,7 +90,7 @@ function dbf() {
   await start();
   const restored = await request('/dbf/session/' + session.sessionId); assert.equal(restored.status, 200);
   assert.equal((await restored.json()).files[0].preview[0].NAME.trim(), 'CLOUD');
-  for (const patch of [{ files: null }, { files: [{ ...meta.files[0], dbf: 'tables/missing.dbf' }] }, { files: [{ ...meta.files[0], dbf: '../outside.dbf' }] }]) {
+  for (const patch of [{ createdAt: 'invalid' }, { manualRels: [null] }, { manualRels: [{ kind: 'manual', sourceField: 'NAME' }] }, { encodings: { 'CLOUD.DBF': 42 } }, { disabledRels: [null] }, { files: [meta.files[0], meta.files[0]] }, { files: null }, { files: [{ ...meta.files[0], dbf: 'tables/missing.dbf' }] }, { files: [{ ...meta.files[0], dbf: '../outside.dbf' }] }]) {
     const id = randomUUID(); fs.mkdirSync(path.join(sessions, id));
     fs.writeFileSync(path.join(sessions, id, 'session.json'), JSON.stringify({ ...meta, ...patch, id }));
     assert.equal((await request('/dbf/session/' + id)).status, 404);

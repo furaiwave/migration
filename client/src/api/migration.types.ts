@@ -1,4 +1,9 @@
 export type Engine = "mysql" | "mongo" | "postgres" | "mssql" | "redis";
+export type MigrationMode = "transfer" | "upgrade";
+export interface ServerVersion {
+  family: Engine | "mariadb";
+  version: string;
+}
 export interface MigrationConnection {
   engine: Engine;
   host?: string;
@@ -40,6 +45,7 @@ export interface ObjectSelection {
   targetName: string;
 }
 export interface MigrationPlanRequest {
+  mode?: MigrationMode;
   source: MigrationConnection;
   target: MigrationConnection;
   objects: ObjectSelection[];
@@ -53,6 +59,9 @@ export interface PlannedObject {
   columns: (MigrationColumn & { targetType: string })[];
 }
 export interface MigrationPlan {
+  mode?: MigrationMode;
+  sourceVersion?: ServerVersion;
+  targetVersion?: ServerVersion;
   id: string;
   expiresAt: string;
   sourceEngine: Engine;

@@ -18,7 +18,7 @@ import {
   NativeConnectorService,
   type NativeEngine,
 } from './native-connector.service';
-class NativeConnectionDto {
+export class NativeConnectionDto {
   @IsIn(['mysql', 'mongo', 'postgres', 'mssql', 'redis']) engine!: NativeEngine;
   @IsOptional() @IsString() @MaxLength(255) host?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(65535) port?: number;

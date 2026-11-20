@@ -5,15 +5,37 @@ import { useApiMutation } from "@/hooks/useApiMutation";
 import { errorMessage } from "@/lib/errors";
 import { logActivity } from "@/lib/activityLog";
 import { Button } from "./ui/button";
+import { DatabaseSchemaTree } from "./DatabaseSchemaTree";
+import type { StructureReport } from "@/lib/schemaTree";
 type Settings = ApiRoutes["POST /dbf/native/inspect"]["body"];
-const inspect = (connection: Settings) =>
-  apiRequest("POST /dbf/native/inspect", { body: connection });
+const inspect = async (connection: Settings): Promise<StructureReport> => {
+  if (connection.engine !== "redis")
+    return apiRequest("POST /dbf/native/inspect", { body: connection });
+  const started = performance.now();
+  const result = await apiRequest("POST /dbf/migration/catalog", {
+    body: { ...connection, database: connection.database ?? "" },
+  });
+  return {
+    engine: "redis",
+    database: connection.database ?? "",
+    elapsedMs: Math.round(performance.now() - started),
+    truncated: false,
+    objects: result.objects.map((object) => ({
+      schema: "",
+      name: object.name,
+      kind: "keys",
+      columns: [],
+    })),
+  };
+};
 export function NativeSchemaInspector({
   connection,
   disabled = false,
+  title = translate("Destination database structure"),
 }: {
   connection: Settings;
   disabled?: boolean;
+  title?: string;
 }) {
   const run = useApiMutation(inspect);
   // This snapshot stays only in memory; it is never included in the downloadable metadata report.
@@ -56,21 +78,18 @@ export function NativeSchemaInspector({
   const ready =
     connection.engine === "mongo"
       ? !!connection.uri?.trim()
-      : !!connection.host?.trim() &&
-        !!connection.user?.trim() &&
-        !!connection.database?.trim() &&
-        Number.isInteger(connection.port) &&
-        Number(connection.port) > 0 &&
-        Number(connection.port) <= 65535;
+      : connection.engine === "redis"
+        ? !!connection.uri?.trim() && !!connection.database?.trim()
+        : !!connection.host?.trim() &&
+          !!connection.user?.trim() &&
+          !!connection.database?.trim() &&
+          Number.isInteger(connection.port) &&
+          Number(connection.port) > 0 &&
+          Number(connection.port) <= 65535;
   return (
-    <section
-      className="flex flex-col gap-2 border p-3"
-      aria-label={translate("Destination database structure")}
-    >
+    <section className="flex flex-col gap-2 border p-3" aria-label={title}>
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="text-xs font-semibold">
-          {translate("Destination database structure")}
-        </h4>
+        <h4 className="text-xs font-semibold">{title}</h4>
         <Button
           size="sm"
           variant="outline"
@@ -79,7 +98,9 @@ export function NativeSchemaInspector({
         >
           {run.isPending
             ? translate("Checking…")
-            : translate("View structure")}
+            : report
+              ? translate("Refresh structure")
+              : translate("View structure")}
         </Button>
         {report && (
           <Button size="sm" variant="outline" onClick={download}>
@@ -98,8 +119,8 @@ export function NativeSchemaInspector({
         </p>
       )}
       {report && (
-        <div className="flex flex-col gap-2 text-xs" role="status">
-          <p>
+        <div className="flex min-w-0 flex-col gap-2 text-xs">
+          <p role="status">
             {report.database} ·{" "}
             {translate("Objects: {0}", [report.objects.length])} ·{" "}
             {translate("Check time: {0} ms", [report.elapsedMs])}
@@ -114,38 +135,7 @@ export function NativeSchemaInspector({
           {!report.objects.length && (
             <p>{translate("No accessible objects found.")}</p>
           )}
-          <div className="max-h-80 overflow-auto">
-            {report.objects.map((object) => (
-              <details
-                key={JSON.stringify([object.schema, object.name])}
-                className="border-t py-2"
-              >
-                <summary className="cursor-pointer font-mono">
-                  {object.schema}.{object.name} · {object.kind}
-                </summary>
-                {object.columns.length > 0 && (
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr>
-                        <th>{translate("Column (mapping)")}</th>
-                        <th>{translate("Type")}</th>
-                        <th>NULL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {object.columns.map((column) => (
-                        <tr key={column.ordinal}>
-                          <td className="py-1">{column.name}</td>
-                          <td className="font-mono">{column.dataType}</td>
-                          <td>{column.nullable ? "YES" : "NO"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </details>
-            ))}
-          </div>
+          <DatabaseSchemaTree report={report} />
         </div>
       )}
     </section>

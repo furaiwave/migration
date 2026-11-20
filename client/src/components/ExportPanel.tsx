@@ -1,3 +1,4 @@
+import { fileImportEngines } from '@/lib/fileImportJobs';
 import { RedisImportPanel } from './RedisImportPanel';
 import { activateNativeEngine, getNativeTarget, subscribeNativeTarget } from '@/lib/nativeTarget';
 import { useEffect } from 'react';
@@ -22,7 +23,9 @@ const TARGETS: ReadonlyArray<{ value: Target; label: string; description: string
 // Per-browser convenience; storage may be unavailable, and then MySQL is shown first.
 const KEY = 'dbf-inspector:export-target'
 
-function savedTarget(): Target {
+function savedTarget(sessionId: string): Target {
+    const restored = fileImportEngines(sessionId).at(-1);
+    if (restored) return restored;
     try {
         const value = localStorage.getItem(KEY);
         return TARGETS.some(t => t.value === value) ? value as Target : 'mysql'
@@ -37,9 +40,9 @@ interface ExportPanelProps {
 }
 
 export function ExportPanel({ sessionId, graph }: ExportPanelProps) {
-    const [target, setTarget] = useState<Target>(savedTarget)
+    const [target, setTarget] = useState<Target>(() => savedTarget(sessionId))
     // A panel once opened stays mounted, so switching back keeps its edits and connection.
-    const [opened, setOpened] = useState<ReadonlySet<Target>>(() => new Set([target]))
+    const [opened, setOpened] = useState<ReadonlySet<Target>>(() => new Set([target, ...fileImportEngines(sessionId)]))
 
     const choose = (next: Target) => {
         activateNativeEngine(next);
@@ -49,9 +52,13 @@ export function ExportPanel({ sessionId, graph }: ExportPanelProps) {
     }
 
     useEffect(() => {
-        const update = () => { const next = getNativeTarget().active; if (next) { setTarget(next); setOpened(s => new Set(s).add(next)); } };
+        const update = () => {
+            if (fileImportEngines(sessionId).length) return;
+            const next = getNativeTarget().active;
+            if (next) { setTarget(next); setOpened(s => new Set(s).add(next)); }
+        };
         update(); return subscribeNativeTarget(update);
-    }, []);
+    }, [sessionId]);
 
     return (
         <section className="flex flex-col gap-4">

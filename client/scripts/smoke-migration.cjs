@@ -15,6 +15,7 @@ const errors = [];
 const requests = [];
 const sourceObject = { id: 'items', schema: 'public', name: 'items', format: 'rows', columns: [{ name: 'id', kind: 'integer', precision: 19, nullable: false }] };
 let planCount = 0, jobCount = 0, activeJob, polls = 0, holdJob = false, lastPlan, missingJob = false;
+let nativeInspections = 0, brokenInspection = false, delayCancellation = false, heldCancellation;
 let browser, socket;
 const server = http.createServer((request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
@@ -43,6 +44,7 @@ async function main() {
       const timeout = setTimeout(() => { pending.delete(id); reject(new Error('CDP timeout: ' + method)); }, 15000);
       pending.set(id, { resolve, reject, timeout }); socket.send(JSON.stringify({ id, method, params }));
     });
+    const fulfill=(requestId,data,responseCode=200)=>send('Fetch.fulfillRequest',{requestId,responseCode,responseHeaders:[{name:'Content-Type',value:'application/json'},{name:'Access-Control-Allow-Origin',value:'*'},{name:'Access-Control-Allow-Headers',value:'*'},{name:'Access-Control-Allow-Methods',value:'GET,POST,DELETE,OPTIONS'}],body:Buffer.from(JSON.stringify(data)).toString('base64')});
     socket.addEventListener('message', event => {
       const message = JSON.parse(event.data);
       if (message.id) {
@@ -58,13 +60,30 @@ async function main() {
         let data = {}, responseCode = 200;
         if (request.method !== 'OPTIONS') {
           requests.push({ method: request.method, pathname });
-          if (pathname.endsWith('/catalog')) data = { objects: [sourceObject] };
+          if (pathname.endsWith('/native/inspect')) {
+            const body = JSON.parse(request.postData);
+            nativeInspections++;
+            if (brokenInspection) { responseCode = 400; data = { message: 'Metadata access denied' }; }
+            else data = { engine: body.engine, database: body.database, elapsedMs: 5, truncated: body.database === 'partial_db', objects: body.database === 'empty_db' ? [] : body.engine === 'postgres' || body.engine === 'mssql' ? [
+              { schema: 'public', name: 'items', kind: 'table', columns: [{name: 'id', dataType: 'bigint', nullable: false, ordinal: 1}, {name: 'email_address', dataType: 'text', nullable: true, ordinal: 2}] },
+              { schema: 'audit', name: 'items', kind: 'table', columns: [{name: 'audit_id', dataType: 'integer', nullable: false, ordinal: 1}] },
+              { schema: 'public', name: 'summary', kind: 'view', columns: [] },
+            ] : [{ schema: body.database, name: 'destination_items', kind: body.engine === 'mongo' ? 'collection' : 'table', columns: [] }] };
+          } else if (pathname.endsWith('/catalog')) {
+            const body = JSON.parse(request.postData);
+            data = { objects: body.engine === 'redis' ? [{id:'keys',schema:'',name:'keys',format:'redis',columns:[]}] : [sourceObject] };
+          }
           else if (pathname.endsWith('/plan')) {
             const body = JSON.parse(request.postData);
             lastPlan = body;
-            assert.equal(body.source.password, 'source-browser-secret');
-            assert.equal(body.target.uri, 'mongodb://target-browser-secret@localhost');
+            if (body.mode === 'upgrade') {
+              assert.equal(body.source.engine, body.target.engine);
+            } else {
+              assert.equal(body.source.password, 'source-browser-secret');
+              assert.equal(body.target.uri, 'mongodb://target-browser-secret@localhost');
+            }
             data = { id: 'plan-' + (++planCount), expiresAt: new Date(Date.now() + 900000).toISOString(), sourceEngine: body.source.engine, targetEngine: body.target.engine,
+              mode: body.mode, ...(body.mode === 'upgrade' ? { sourceVersion: { family: body.source.engine, version: '5.6.51' }, targetVersion: { family: body.target.engine, version: '8.0.40' } } : {}),
               redisPrefix: body.redisPrefix, objects: [{ source: sourceObject, targetName: body.objects[0].targetName, targetSchema: '', columns: sourceObject.columns.map(column => ({ ...column, targetType: 'BSON integer' })) }],
               warnings: ['Only new destination objects are created.', 'Indexes and constraints are not recreated.'] };
           } else if (pathname.endsWith('/start')) {
@@ -74,16 +93,19 @@ async function main() {
           } else if (pathname.includes('/jobs/')) {
             if (missingJob) { responseCode = 404; data = { message: 'Migration job not found. Check the destination before retrying.' }; }
             else {
+              if (request.method === 'DELETE' && delayCancellation) {
+                delayCancellation=false;
+                const snapshot={...activeJob};
+                activeJob={...activeJob,state:'done',phase:'finished',read:2,written:2};
+                heldCancellation=()=>fulfill(requestId,snapshot);return;
+              }
               if (request.method === 'DELETE') activeJob = { ...activeJob, state: 'cancelled', phase: 'finished', written: 1, read: 1, error: 'Migration cancelled', warnings: ['Partial results remain in the destination.'] };
               else if (!holdJob && ++polls >= 2 && activeJob.state === 'running') activeJob = { ...activeJob, state: 'done', phase: 'finished', read: 2, written: 2 };
               data = activeJob;
             }
           }
         }
-        void send('Fetch.fulfillRequest', { requestId, responseCode, responseHeaders: [
-          { name: 'Content-Type', value: 'application/json' }, { name: 'Access-Control-Allow-Origin', value: '*' },
-          { name: 'Access-Control-Allow-Headers', value: '*' }, { name: 'Access-Control-Allow-Methods', value: 'GET,POST,DELETE,OPTIONS' },
-        ], body: Buffer.from(JSON.stringify(data)).toString('base64') }).catch(error => errors.push(error.message));
+        void fulfill(requestId,data,responseCode).catch(error => errors.push(error.message));
       }
     });
     const evaluate = async expression => {
@@ -106,11 +128,143 @@ async function main() {
     await send('Page.addScriptToEvaluateOnNewDocument', { source: "localStorage.setItem('dbf-inspector:language:v2','en')" });
     await send('Fetch.enable', { patterns: [{ urlPattern: 'http://127.0.0.1:*/dbf/*', requestStage: 'Request' }] });
     await send('Page.navigate', { url });
-    await waitFor("document.querySelector('main select')?.value === 'files'");
-    assert.equal(await evaluate("document.querySelector('#database-migration') === null"), true, 'Table files are the default source');
-    await select('main > label select', 'database');
+    const go = async page => evaluate("document.querySelector('[data-workspace-link="+page+"]').click()");
+    const currentPage = page => "document.querySelector('[data-workspace-link="+page+"]')?.getAttribute('aria-current') === 'page'";
+    await waitFor(currentPage('home'));
+    assert.equal(await evaluate("document.querySelectorAll('[data-workflow]').length"),3);
+    assert.equal(await evaluate("document.querySelectorAll('nav [data-workspace-link]').length"),4);
+    assert.equal(await evaluate("document.querySelector('#database-migration') === null"),true,'the homepage does not open a migration form');
+    for(const width of [1440,390]){
+      await send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth + 1'),true,'navigation and cards fit at '+width);
+      assert.equal(await evaluate("Array.from(document.querySelectorAll('[data-workflow]')).every(card=>card.scrollWidth <= card.clientWidth + 1)"),true);
+      const shot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+      fs.writeFileSync(path.join(cache,width===1440?'navigation-home.png':'navigation-home-mobile.png'),Buffer.from(shot.data,'base64'));
+    }
+    await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await evaluate("document.querySelector('[data-workflow=upgrade]').click()");
+    await waitFor(currentPage('upgrade'));
+    await waitFor("document.querySelector('#database-migration select[aria-label=\"Migration mode\"]').value === 'upgrade'");
+    assert.equal(await evaluate("document.querySelector('#database-migration fieldset:first-child legend').textContent"),'Old server');
+    assert.equal(await evaluate("document.querySelector('#database-migration h2').textContent"),'Version upgrade');
+    assert.equal(await evaluate("document.querySelector('#database-migration fieldset:last-child select').disabled"),true);
+    await setInput('#database-migration fieldset:first-child input[type=password]','navigation-password');
+    await evaluate('window.scrollTo(0,document.body.scrollHeight)');
+    await go('home');await waitFor(currentPage('home'));
+    assert.equal(await evaluate('scrollY'),0,'a new workspace opens at the top of its page');
+    await evaluate("document.querySelector('[data-workspace-link=upgrade]').focus()");
+    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+    await waitFor(currentPage('upgrade'));
+    assert.equal(await evaluate("document.querySelector('#database-migration fieldset:first-child input[type=password]').value"),'navigation-password','navigation retains connection edits in memory');
+    assert.equal(await evaluate("JSON.stringify(localStorage).includes('navigation-password')"),false);
+    await go('home');await waitFor(currentPage('home'));
+    await evaluate('history.back()');await waitFor(currentPage('upgrade'));
+    await evaluate('history.forward()');await waitFor(currentPage('home'));
+    await send('Page.navigate',{url:url+'/?view=upgrade'});
+    await waitFor(currentPage('upgrade'));
+    await waitFor("document.querySelector('#database-migration select[aria-label=\"Migration mode\"]').value === 'upgrade'");
+    await send('Page.reload');
+    await waitFor(currentPage('upgrade'));
+    assert.equal(await evaluate("document.querySelector('#database-migration select[aria-label=\"Migration mode\"]').value"),'upgrade','deep links retain the workflow after reload');
+    assert.equal(await evaluate("document.querySelector('#database-migration input[type=password]').value"),'');
+    const upgradeShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+    fs.writeFileSync(path.join(cache,'navigation-upgrade.png'),Buffer.from(upgradeShot.data,'base64'));
+    await go('files');await waitFor(currentPage('files'));
+    assert.equal(await evaluate("document.querySelector('#source input[type=file]') !== null"),true);
+    await go('transfer');await waitFor(currentPage('transfer'));
+    await waitFor("document.querySelector('#database-migration select[aria-label=\"Migration mode\"]').value === 'transfer'");
+    console.log('PASS: homepage scenarios, persistent navigation, direct upgrade entry, keyboard access, back/forward, reload, in-memory edits and mobile layout.');
     await waitFor("document.querySelectorAll('#database-migration fieldset').length === 2");
     for (const index of [1, 2]) assert.deepEqual(await evaluate("Array.from(document.querySelector('#database-migration fieldset:nth-child(" + index + ") select').options).map(option => option.value)"), ['mysql','mongo','postgres','mssql','redis']);
+    const sourceScope = '#database-migration fieldset:first-child';
+    const targetScope = '#database-migration fieldset:last-child';
+    const sourceTree = sourceScope + ' [role=tree]';
+    const scopedClick = async (scope, label) => evaluate("Array.from(document.querySelector(" + JSON.stringify(scope) + ").querySelectorAll('button')).find(button => button.textContent.trim() === " + JSON.stringify(label) + ").click()");
+    const key = async (name, code) => {
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key: name, code: name, windowsVirtualKeyCode: code });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code: name, windowsVirtualKeyCode: code });
+    };
+    await select(sourceScope + ' select', 'postgres');
+    await setInput(sourceScope + ' > label:nth-of-type(2) input', 'user');
+    await setInput(sourceScope + ' input[type=password]', 'source-browser-secret');
+    await setInput(sourceScope + ' > label:nth-of-type(4) input', 'active_db');
+    await scopedClick(sourceScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceTree) + ") !== null");
+    assert.equal(await evaluate("document.querySelector(" + JSON.stringify(sourceTree + ' [data-kind=database]') + ").dataset.name"), 'active_db');
+    assert.deepEqual(await evaluate("Array.from(document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=schema]') + ")).map(node => node.dataset.name)"), ['audit', 'public']);
+    assert.equal(await evaluate("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=table][data-name=items]') + ").length"), 2, 'identically named tables remain separate across schemas');
+    assert.equal(await evaluate("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [tabindex="0"]') + ").length"), 1);
+    await evaluate("document.querySelector(" + JSON.stringify(sourceTree + ' [role=treeitem]') + ").focus()");
+    await key('ArrowDown', 40);
+    assert.equal(await evaluate('document.activeElement.dataset.kind'), 'schema');
+    await key('ArrowRight', 39);
+    assert.equal(await evaluate('document.activeElement.dataset.kind'), 'table');
+    await key('ArrowRight', 39);
+    assert.equal(await evaluate("document.activeElement.getAttribute('aria-expanded')"), 'true');
+    await key('ArrowRight', 39);
+    assert.equal(await evaluate('document.activeElement.dataset.name'), 'audit_id');
+    await key('ArrowLeft', 37);
+    assert.equal(await evaluate('document.activeElement.dataset.kind'), 'table');
+    await key('End', 35);
+    assert.equal(await evaluate('document.activeElement.dataset.name'), 'summary');
+    await key('Home', 36);
+    assert.equal(await evaluate('document.activeElement.dataset.kind'), 'database');
+    await scopedClick(sourceScope, 'Expand all');
+    await waitFor("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=column]') + ").length === 3");
+    assert.equal(await evaluate("document.querySelector(" + JSON.stringify(sourceTree) + ").textContent.includes('NOT NULL')"), true);
+    await setInput(sourceScope + ' input[type=search]', 'EMAIL_ADDRESS');
+    await waitFor("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=column]') + ").length === 1");
+    assert.deepEqual(await evaluate("Array.from(document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=schema]') + ")).map(node => node.dataset.name)"), ['public']);
+    await setInput(sourceScope + ' input[type=search]', 'no_matching_object');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceScope) + ").textContent.includes('No matching objects.')");
+    await setInput(sourceScope + ' input[type=search]', '');
+    await scopedClick(sourceScope, 'Collapse all');
+    assert.equal(await evaluate("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [role=treeitem]') + ").length"), 1);
+    await scopedClick(sourceScope, 'Expand all');
+    await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), true, 'expanded tree fits the mobile page');
+    await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1150, deviceScaleFactor: 1, mobile: false });
+    await evaluate("document.querySelector(" + JSON.stringify(sourceScope + ' .schema-browser') + ").scrollIntoView({block:'center'})");
+    const treeScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+    fs.writeFileSync(path.join(cache, 'schema-tree.png'), Buffer.from(treeScreenshot.data, 'base64'));
+    const beforeRefresh = nativeInspections;
+    await scopedClick(sourceScope, 'Refresh structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceTree) + ") !== null");
+    assert.equal(nativeInspections, beforeRefresh + 1);
+    brokenInspection = true;
+    await scopedClick(sourceScope, 'Refresh structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceScope + ' [role=alert]') + ")?.textContent.includes('Metadata access denied')");
+    assert.equal(await evaluate("document.querySelector(" + JSON.stringify(sourceTree) + ") === null"), true);
+    brokenInspection = false;
+    await scopedClick(sourceScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceTree) + ") !== null");
+    await setInput(targetScope + ' > label:nth-of-type(2) input', 'target-user');
+    await setInput(targetScope + ' > label:nth-of-type(4) input', 'target_tree_db');
+    await scopedClick(targetScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(targetScope + ' [role=tree] [data-kind=database]') + ")?.dataset.name === 'target_tree_db'");
+    assert.equal(await evaluate("document.querySelector(" + JSON.stringify(sourceTree + ' [data-kind=database]') + ").dataset.name"), 'active_db');
+    await setInput(sourceScope + ' > label:nth-of-type(4) input', 'empty_db');
+    assert.equal(await evaluate("document.querySelector(" + JSON.stringify(sourceTree) + ") === null"), true, 'editing a connection hides stale metadata');
+    await scopedClick(sourceScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceScope) + ").textContent.includes('No accessible objects found.')");
+    await setInput(sourceScope + ' > label:nth-of-type(4) input', 'partial_db');
+    await scopedClick(sourceScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceScope) + ").textContent.includes('The structure is partial')");
+    assert.equal(await evaluate("JSON.stringify(localStorage).includes('source-browser-secret')"), false);
+    console.log('PASS: source/destination schema trees, duplicate table names, column types, keyboard navigation, search, expand/collapse, refresh, errors, empty/partial metadata and mobile layout.');
+    await select(sourceScope + ' select', 'mongo');
+    await setInput(sourceScope + ' > label:last-of-type input', 'mongo_tree_db');
+    await scopedClick(sourceScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceTree + ' [data-kind=collection]') + ") !== null");
+    assert.equal(await evaluate("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=schema], ' + sourceTree + ' [data-kind=column]') + ").length"), 0);
+    await select(sourceScope + ' select', 'redis');
+    await scopedClick(sourceScope, 'View structure');
+    await waitFor("document.querySelector(" + JSON.stringify(sourceTree + ' [data-kind=keys]') + ")?.dataset.name === 'keys'");
+    assert.equal(await evaluate("document.querySelector(" + JSON.stringify(sourceTree + ' [data-kind=database]') + ").dataset.name"), '0');
+    assert.equal(await evaluate("document.querySelectorAll(" + JSON.stringify(sourceTree + ' [data-kind=schema], ' + sourceTree + ' [data-kind=column]') + ").length"), 0);
+    console.log('PASS: MongoDB collections and Redis database/key metadata appear without invented SQL schemas or document fields.');
+    await select(sourceScope + ' select', 'mysql');
     await setInput('#database-migration fieldset:first-child input:nth-of-type(1)', 'localhost');
     // Address inputs by their labels to avoid coupling to layout or shared input internals.
     await setInput('#database-migration fieldset:first-child > label:nth-of-type(2) input', 'user');
@@ -119,7 +273,7 @@ async function main() {
     await select('#database-migration fieldset:last-child select', 'mongo');
     await waitFor("document.querySelector('#database-migration fieldset:last-child input[type=password]') !== null");
     await setInput('#database-migration fieldset:last-child input[type=password]', 'mongodb://target-browser-secret@localhost');
-    await setInput('#database-migration fieldset:last-child > label:last-child input', 'target_db');
+    await setInput('#database-migration fieldset:last-child > label:last-of-type input', 'target_db');
     await click('Load structure'); await waitFor("document.querySelector('#database-migration table tbody input[type=checkbox]') !== null");
     await evaluate("document.querySelector('#database-migration table tbody input[type=checkbox]').click()");
     await setInput('#database-migration table tbody input:not([type=checkbox])', 'renamed_items');
@@ -135,25 +289,78 @@ async function main() {
     await click('Start migration'); await waitFor("document.body.innerText.includes('Migration completed')");
     assert.equal(await evaluate("JSON.stringify(localStorage).includes('browser-secret')"), false);
     assert.equal(await evaluate("document.body.innerText.includes('written: 2')"), true);
-    console.log('PASS: Table-file default, all five engines, rename, review gate, mobile layout, start/progress and credential privacy.');
+    console.log('PASS: all five engines, rename, review gate, mobile layout, start/progress and credential privacy.');
     holdJob = true;
     await click('Build plan'); await waitFor("document.querySelector('#review input[type=checkbox]') !== null");
     await evaluate("document.querySelector('#review input[type=checkbox]').click()");
-    await click('Start migration'); await waitFor("document.querySelector('main > label select').disabled");
+    await click('Start migration'); await waitFor("document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') === 'true'");
+    const runningJob=await evaluate("localStorage.getItem('dbf-inspector:database-migration-job')");
+    await go('home');assert.equal(await evaluate(currentPage('transfer')),true,'active migrations block menu navigation');
+    await evaluate('history.back()');await sleep(150);
+    assert.equal(await evaluate(currentPage('transfer')),true,'browser back cannot hide an active migration');
+    assert.equal(await evaluate("new URL(location.href).searchParams.get('view')"),'transfer');
+    assert.equal(await evaluate("localStorage.getItem('dbf-inspector:database-migration-job')"),runningJob);
+
     await send('Page.reload');
-    await waitFor("document.body.innerText.includes('Migration running') && document.querySelector('main > label select').value === 'database'");
+    await waitFor("document.body.innerText.includes('Migration running') && ['transfer','upgrade'].includes(document.querySelector('[data-workspace-link][aria-current=page]')?.dataset.workspaceLink)");
     assert.equal(await evaluate("document.querySelector('#database-migration input[type=password]').value"), '');
     await click('Stop'); await waitFor("document.body.innerText.includes('Migration cancelled')");
-    await waitFor("!document.querySelector('main > label select').disabled");
+    await waitFor("document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') !== 'true'");
     assert.equal(await evaluate("document.body.innerText.includes('Partial results remain')"), true);
     console.log('PASS: refresh restores the job without credentials; cancellation exposes partial results and releases controls.');
     missingJob = true; await send('Page.reload');
     await waitFor("document.body.innerText.includes('Migration job not found')");
-    await waitFor("!document.querySelector('main > label select').disabled");
+    await waitFor("document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') !== 'true'");
     assert.equal(await evaluate("localStorage.getItem('dbf-inspector:database-migration-job')"), null);
+    missingJob = false;
+    holdJob = false;
+    await select('#database-migration select[aria-label="Migration mode"]', 'upgrade');
+    await waitFor("document.querySelector('#database-migration fieldset:last-child select').disabled");
+    assert.equal(await evaluate("document.querySelector('#database-migration fieldset:first-child legend').textContent"), 'Old server');
+    assert.equal(await evaluate("document.querySelector('#database-migration fieldset:last-child legend').textContent"), 'New server');
+    for (const engine of ['mysql', 'mongo', 'postgres', 'mssql', 'redis']) {
+      await select('#database-migration fieldset:first-child select', engine);
+      await waitFor("document.querySelector('#database-migration fieldset:last-child select').value === '" + engine + "'");
+      assert.equal(await evaluate("document.querySelector('#database-migration fieldset:last-child select').disabled"), true);
+    }
+    assert.equal(await evaluate("document.querySelector('#database-migration').textContent.includes('Key prefix')"), false);
+    await select('#database-migration fieldset:first-child select', 'mysql');
+    await click('Load structure');
+    await waitFor("document.querySelector('#database-migration table tbody input[type=checkbox]') !== null");
+    await evaluate("document.querySelector('#database-migration table tbody input[type=checkbox]').click()");
+    await click('Build plan');
+    await waitFor("document.querySelector('#review')?.textContent.includes('5.6.51')");
+    assert.equal(lastPlan.mode, 'upgrade');
+    assert.equal(lastPlan.source.engine, lastPlan.target.engine);
+    assert.equal(await evaluate("document.querySelector('#review').textContent.includes('8.0.40')"), true);
+    assert.equal(await evaluate("Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Start migration').disabled"), true);
+    await evaluate("document.querySelector('#review input[type=checkbox]').click()");
+    await click('Start migration');
+    await waitFor("document.body.innerText.includes('Migration completed')");
+    holdJob=true;delayCancellation=true;
+    await click('Build plan');await waitFor("document.querySelector('#review input[type=checkbox]') !== null");
+    await evaluate("document.querySelector('#review input[type=checkbox]').click()");
+    await click('Start migration');await waitFor("document.body.innerText.includes('Migration running')");
+    await click('Stop');
+    await waitFor("document.body.innerText.includes('Migration completed')");
+    assert.equal(typeof heldCancellation,'function');
+    await heldCancellation();heldCancellation=undefined;await sleep(200);
+    assert.equal(await evaluate("document.body.innerText.includes('Migration completed') && document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') !== 'true'"),true,'a delayed running cancellation reply must not revive a completed migration');
+    holdJob=false;
+    console.log('PASS: completed migrations stay completed when an older cancellation reply arrives.');
+    await select('#database-migration select[aria-label="Migration mode"]', 'transfer');
+    assert.equal(await evaluate("document.querySelector('#review') === null"), true);
+    assert.equal(await evaluate("document.querySelector('#database-migration fieldset:last-child select').disabled"), false);
+    console.log('PASS: version upgrade synchronizes all five engines, displays detected versions, preserves review gating and can return to transfer mode.');
+    await go('home');await waitFor(currentPage('home'));
+    await send('Page.reload');await waitFor(currentPage('home'));
+    await waitFor("document.querySelector('[data-workspace-link=home]').getAttribute('aria-disabled') !== 'true'");
+    assert.equal(await evaluate("document.querySelector('.workspace-home') !== null"),true,'a completed cached job cannot replace the homepage');
+    console.log('PASS: active migrations block navigation and browser back; completed job restoration keeps an explicitly selected homepage.');
     assert.deepEqual(errors, []);
     console.log('PASS: missing jobs release controls, clear stale IDs and show an actionable error; no browser exceptions.');
   } finally {
+    if (heldCancellation) await heldCancellation().catch(()=>{});
     if (socket) socket.close();
     if (browser) browser.kill();
     await new Promise(resolve => server.close(resolve));

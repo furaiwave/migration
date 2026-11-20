@@ -4,7 +4,11 @@ import {
   redisRecord,
   validateRedisUri,
 } from './redis-import.service';
-import { MysqlExportService, type DocumentTable } from './mysql-export.service';
+import {
+  MysqlExportService,
+  type DocumentTable,
+  type DocumentSource,
+} from './mysql-export.service';
 import type { DbfSession } from '../types/dbf-session.types';
 import type { RedisOptions } from '../types/redis-import.types';
 jest.mock('redis', () => ({ createClient: jest.fn() }));
@@ -32,15 +36,28 @@ const table = (): DocumentTable =>
     },
   }) as unknown as DocumentTable;
 function setup() {
-  const data = { tables: [table()], warnings: [], quality: [] };
-  const source = { documentSource: jest.fn() };
+  const data: DocumentSource = {
+    tables: [table()],
+    warnings: [],
+    quality: [],
+    links: [],
+    foreignKeys: [],
+  };
+  const source = {
+    documentSource: jest.fn<
+      ReturnType<MysqlExportService['documentSource']>,
+      Parameters<MysqlExportService['documentSource']>
+    >(),
+  };
   source.documentSource.mockReturnValue(data);
   const client = {
     connect: jest.fn().mockResolvedValue(undefined),
     on: jest.fn(),
     isOpen: true,
     destroy: jest.fn(),
-    eval: jest.fn().mockResolvedValue(1),
+    eval: jest
+      .fn<Promise<number>, [string, { keys: string[]; arguments: string[] }]>()
+      .mockResolvedValue(1),
   };
   jest
     .mocked(createClient)
@@ -190,9 +207,65 @@ test('unknown jobs return 404 and non-hash replies fail without further writes',
 });
 
 test('synchronous driver setup failures are sanitized and release the import slot', async () => {
-  const {service}=setup();
-  for(let i=0;i<3;i++) {
-    jest.mocked(createClient).mockImplementationOnce(()=>{throw new Error('private-secret URI malformed');});
-    await expect(service.startImport({} as DbfSession,[],options,'redis://localhost/0')).rejects.toThrow('Redis operation failed');
+  const { service } = setup();
+  for (let i = 0; i < 3; i++) {
+    jest.mocked(createClient).mockImplementationOnce(() => {
+      throw new Error('private-secret URI malformed');
+    });
+    await expect(
+      service.startImport({} as DbfSession, [], options, 'redis://localhost/0'),
+    ).rejects.toThrow('Redis operation failed');
   }
+});
+
+test('shutdown waits for the active Redis record and refuses new imports', async () => {
+  const { service, client } = setup();
+  let release!: (value: number) => void;
+  client.eval.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const job = await service.startImport(
+    {} as DbfSession,
+    [],
+    options,
+    'redis://localhost/0',
+  );
+  let closed = false;
+  const closing = service.onModuleDestroy().then(() => {
+    closed = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(closed).toBe(false);
+  release(1);
+  await closing;
+  expect(service.getStatus(job.jobId).state).toBe('cancelled');
+  expect(client.eval).toHaveBeenCalledTimes(1);
+  expect(client.destroy).toHaveBeenCalledTimes(1);
+  await expect(
+    service.startImport({} as DbfSession, [], options, 'redis://localhost/0'),
+  ).rejects.toThrow('stopping');
+});
+test('shutdown during a Redis connection closes the client without writing records', async () => {
+  const { service, client } = setup();
+  let release!: () => void;
+  client.connect.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const start = service.startImport(
+    {} as DbfSession,
+    [],
+    options,
+    'redis://localhost/0',
+  );
+  await service.onModuleDestroy();
+  release();
+  await expect(start).rejects.toThrow('stopping');
+  expect(client.eval).not.toHaveBeenCalled();
+  expect(client.destroy).toHaveBeenCalledTimes(1);
 });

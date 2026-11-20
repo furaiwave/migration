@@ -11,7 +11,8 @@
     "build": "node scripts/build.mjs",
     "start": "node scripts/start.mjs",
     "dist": "node scripts/build.mjs && electron-builder --win --publish never",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "test": "node --test scripts/test-*.cjs"
   },
   "build": {
     "appId": "dev.furaiwave.dbf-inspector",
@@ -21,6 +22,7 @@
     },
     "files": [
       "main.cjs",
+      "graceful-quit.cjs",
       "app/**/*",
       "assets/icon.ico",
       "assets/icon.png",

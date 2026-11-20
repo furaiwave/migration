@@ -153,6 +153,30 @@ describe('Redis and MongoDB source and destination adapters', () => {
       'already exists',
     );
   });
+  test('Redis version upgrade preserves original binary keys without a prefix', async () => {
+    const { client } = redisMock();
+    client.info.mockResolvedValue('redis_version:6.2.14\r\n');
+    const source = await connectors.source(redisConnection);
+    expect(await source.version()).toEqual({
+      family: 'redis',
+      version: '6.2.14',
+    });
+    const target = await connectors.target(
+      redisConnection,
+      'ignored',
+      'upgrade',
+    );
+    expect(await target.version()).toEqual({
+      family: 'redis',
+      version: '6.2.14',
+    });
+    const key = Buffer.from([0, 255, 65]);
+    const dump = Buffer.from([1, 2, 3]);
+    await target.write(redisObject, { key, dump, expiresAt: null }, 1);
+    expect(client.restore).toHaveBeenCalledWith(key, 0, dump);
+    await source.close();
+    await target.close();
+  });
   test('Redis identity prevents copying into the same DB through different host aliases', async () => {
     redisMock();
     await expect(
@@ -191,6 +215,9 @@ describe('Redis and MongoDB source and destination adapters', () => {
     };
     const db = {
       databaseName: 'test',
+      admin: jest.fn(() => ({
+        command: jest.fn(async () => ({ version: '4.2.24' })),
+      })),
       collection: jest.fn(() => collection),
       listCollections: jest.fn(() => ({
         toArray: async () => [{ name: 'items', type: 'collection' }],
@@ -204,6 +231,10 @@ describe('Redis and MongoDB source and destination adapters', () => {
     };
     (MongoClient as unknown as jest.Mock).mockImplementation(() => client);
     const source = await connectors.source(mongoConnection);
+    expect(await source.version()).toEqual({
+      family: 'mongo',
+      version: '4.2.24',
+    });
     const objects = await source.objects();
     const rows: Row[] = [];
     for await (const row of source.read(
@@ -212,6 +243,10 @@ describe('Redis and MongoDB source and destination adapters', () => {
     ))
       rows.push(row);
     const target = await connectors.target(mongoConnection, 'copy');
+    expect(await target.version()).toEqual({
+      family: 'mongo',
+      version: '4.2.24',
+    });
     const object: PlannedObject = {
       source: objects[0],
       targetName: 'copy',

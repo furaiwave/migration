@@ -1,3 +1,4 @@
+import { trackStartedFileImport } from '@/lib/fileImportJobs';
 import { apiRequest, ApiError } from "@/client/client";
 import type {
     MongoConnectionInfo,
@@ -49,7 +50,7 @@ async function importIntoMongo(input: MongoImportInput): Promise<MongoImportStat
     return apiRequest('POST /dbf/session/:id/mongo/import', {
         params: { id: input.sessionId },
         body: { ...requestOptions(input), ...input.connection },
-    })
+    }).then((status) => trackStartedFileImport(input.sessionId, 'mongo', status))
 }
 
 export function useMongoTestConnection() {

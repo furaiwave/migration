@@ -49,6 +49,29 @@ describe('SQL data fidelity and destination protection', () => {
       expect(() => identifier('bad\0name', engine)).toThrow();
     },
   );
+  test.each([
+    ['mysql', '5.6.51', 'SELECT VERSION()'],
+    ['postgres', '9.6.24', "current_setting('server_version')"],
+    ['mssql', '12.0.6024.0', "SERVERPROPERTY('ProductVersion')"],
+  ] as const)(
+    '%s reads actual server versions on both endpoints',
+    async (engine, version, query) => {
+      const connection = db();
+      connection.query.mockResolvedValue([{ version }]);
+      const input = { engine, database: 'test' };
+      expect(await new SqlSource(connection, input).version()).toEqual({
+        family: engine,
+        version,
+      });
+      expect(await new SqlTarget(connection, input).version()).toEqual({
+        family: engine,
+        version,
+      });
+      expect(
+        connection.query.mock.calls.every(([sql]) => sql.includes(query)),
+      ).toBe(true);
+    },
+  );
   test('preserves bigint and exact decimals when creating BSON records', () => {
     const source = {
       ...object.source,
@@ -102,6 +125,26 @@ describe('SQL data fidelity and destination protection', () => {
     expect(restored._id).toEqual(document._id);
     expect(restored.nested).toEqual(document.nested);
     expect((restored.bytes as BSON.Binary).sub_type).toBe(128);
+  });
+  test('MySQL rejects decimal scales above 30 before table creation', () => {
+    expect(() =>
+      sqlType(
+        { ...column, kind: 'decimal', precision: 65, scale: 31 },
+        'mysql',
+      ),
+    ).toThrow('precision');
+    expect(
+      sqlType(
+        { ...column, kind: 'decimal', precision: 65, scale: 30 },
+        'mysql',
+      ),
+    ).toBe('decimal(65,30)');
+    expect(
+      sqlType(
+        { ...column, kind: 'decimal', precision: 65, scale: 31 },
+        'postgres',
+      ),
+    ).toBe('decimal(65,31)');
   });
   test('rejects excess destination precision and never rounds unbounded decimals', () => {
     expect(() =>
@@ -204,6 +247,34 @@ describe('SQL data fidelity and destination protection', () => {
     );
     expect(rows).toEqual([{ value: '{900719925474099312345,1}' }]);
   });
+  test.each(['money', 'smallmoney'])(
+    'SQL Server %s retains four fractional digits during reading',
+    async (type) => {
+      const connection = db();
+      const source = new SqlSource(connection, {
+        engine: 'mssql',
+        database: 'test',
+      });
+      const money = columnFromMetadata({
+        engine: 'mssql',
+        column: 'amount',
+        type,
+        nullable: 'NO',
+        precision: 19,
+        scale: 4,
+      });
+      connection.rows.mockImplementation(async function* (query) {
+        yield { amount: query.includes('[amount],2)') ? '123.4567' : '123.46' };
+      });
+      const values: unknown[] = [];
+      for await (const row of source.read(
+        { ...object.source, columns: [money] },
+        new AbortController().signal,
+      ))
+        values.push(row.amount);
+      expect(values).toEqual(['123.4567']);
+    },
+  );
   test('SQL Server reads exact numerics and datetimes as server-formatted text', async () => {
     const connection = db();
     const source = new SqlSource(connection, {
@@ -221,7 +292,7 @@ describe('SQL data fidelity and destination protection', () => {
       expect(row).toBeDefined();
     }
     expect(connection.rows.mock.calls[0][0]).toMatch(
-      /CONVERT\(nvarchar\(max\),\[value\]\)/,
+      /CONVERT\(nvarchar\(max\),\[value\],2\)/,
     );
     expect(connection.rows.mock.calls[0][0]).toContain(
       'CONVERT(nvarchar(max),[at],127)',

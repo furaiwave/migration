@@ -46,12 +46,25 @@ Source strings and translation keys are English. Other languages live in the tra
 Translation catalog: `client/src/i18n/messages.json`. Check it with `cd client` followed by `npm run test:i18n`.
 
 Use the button next to the language selector to switch between light and dark themes. The desktop interface uses centered work areas, soft charcoal surfaces in dark mode, fine line icons, and green/red outlined actions. Your choice persists between launches; before a manual selection, the theme follows the system preference.
+<<<<<<< Updated upstream
+=======
+
+## MySQL synchronization
+
+Live MySQL Sync checks existing unique indexes before writing. Every unique index must include the complete planned primary key; prefix and expression indexes do not establish that identity. An unrelated unique index could otherwise direct an upsert to a row with a different primary key, as described in the [MySQL upsert documentation](https://dev.mysql.com/doc/refman/8.4/en/insert-on-duplicate.html). Review a rejected schema or choose another import mode explicitly.
+
+Append and Sync also compare existing column types, character sets and key collations with the plan before changing tables. Compatible wider integer, decimal, text and binary columns are accepted. Narrower types, implicit conversion of text identifiers to numbers, non-utf8mb4 character columns and different key comparison rules are rejected. Adjust the plan or destination schema to resolve a mismatch; validation does not alter an existing schema automatically.
+
+Generated MySQL scripts enable `STRICT_ALL_TABLES` for their session and restore the previous SQL mode on completion. Metadata and warnings remain line comments in SQL and mongosh exports, including when an uploaded field name contains CR, LF or Unicode line separators.
+
+FoxPro and dBASE 7 timestamps retain milliseconds; MySQL uses `DATETIME(3)` by default. A narrower temporal override is rejected when it would discard nonzero fractional seconds. Valid dates before year 1000 remain available to other engines, while the MySQL plan reports its destination range restriction. Binary fields preserve zero bytes, empty byte sequences and explicit NULL as distinct values across all five destinations.
+>>>>>>> Stashed changes
 
 ## PostgreSQL and Microsoft SQL Server
 
 Select PostgreSQL or MSSQL in **Export to**. Enter the host, port (5432 / 1433), user, password and an **existing** database, then test the connection and review the plan. The import uses the public / dbo schemas and password authentication. TLS is enabled; you can explicitly trust a self-signed server certificate for a local server.
 
-Supported modes are append rows and replace tables. The entire import runs in one transaction; an error or cancellation rolls back the changes. Dependencies outside the selected tables are not removed with CASCADE. Supported values include text, exact decimals, dates, booleans, binary data and memo fields. Deleted records can be written into separate tables, and verified foreign keys can be created. MSSQL decimal precision overflow and zero bytes in PostgreSQL text are rejected before tables are changed.
+Supported modes are append rows and replace tables. The entire import runs in one transaction; an error or cancellation before commit rolls back the changes. If the connection is lost while confirming commit, the job reports an uncertain outcome: check the database before retrying. Dependencies outside the selected tables are not removed with CASCADE. Supported values include text, exact decimals, dates, booleans, binary data and memo fields. Deleted records can be written into separate tables, and verified foreign keys can be created. MSSQL decimal precision overflow and zero bytes in PostgreSQL text are rejected before tables are changed.
 
 Sync and SQL dump export are not yet supported for these two engines. CDX candidate keys are migrated; secondary indexes based on FoxPro expressions are not, and the plan reports this. Progress and results appear in the console. The last 2000 log entries are stored locally and can be downloaded with the .log button.
 
@@ -69,7 +82,13 @@ DNS/TCP diagnostics, database catalogs and connection timing are documented in [
 
 ## Workspace
 
-File-based imports have four steps: optional server selection, table files, relationship review and transfer. The overview shows table, record and active relationship counts. Technical file headers can be expanded separately. The activity log is always available in the bottom panel, where it can be expanded, filtered by status and downloaded as .log.
+The homepage offers Table files, Between databases and Version upgrade. A persistent navigation bar opens each workflow directly, including old-to-new server migration. Page links use `?view=home`, `?view=files`, `?view=transfer` and `?view=upgrade`; browser Back/Forward and reload keep the selected screen. Navigation preserves connection edits in memory, with passwords cleared on reload. Active imports and migrations keep navigation locked until they finish or stop.
+
+File-based imports have four steps: optional server selection, table files, relationship review and transfer. The overview shows table, record and active relationship counts. Technical file headers can be expanded separately. The activity log is always available in the bottom panel, where it can be expanded, filtered by status and downloaded as .log. While a file import is starting or running, New session and source switching stay disabled so the active job keeps its session and progress. After a successful start response, reloading restores the existing job, progress and cancellation for all five destinations without starting another import. Only session, engine and job IDs are saved locally. Temporary status failures keep the session locked and retry; a missing job clears its reference and asks you to check the destination before restarting. Graceful application shutdown waits for in-flight operations and SQL rollback; writes already completed in MySQL, MongoDB or Redis remain in place.
+
+Relationship cards keep source/target tables and fields together, with full names wrapping on narrow screens. Name matches use a bidirectional marker; directed suggestions use an arrow. Search and filters narrow the list by table, kind or active state, with 50 relationships per page. Disabled links remain readable. Relationship updates run one at a time, and failed manual additions retain their selected endpoints for retry. The export plan still validates references before creating constraints.
+
+Connected database forms include a **View structure** tree for the selected database: schemas, tables/views or collections, and reported column types. It supports search, expand/collapse, keyboard navigation, refresh and metadata JSON download. It is available for both endpoints in **Between databases** and for destination inspection during file imports. See [RUST_FEATURES.md](RUST_FEATURES.md).
 
 ## Docker / VPS
 
@@ -81,6 +100,13 @@ source imports use hashes and support key prefixes, new-record or field-update m
 
 ## Between databases
 
+<<<<<<< HEAD
+Open **Between databases** from the homepage or navigation bar. It supports MySQL/MariaDB, MongoDB, PostgreSQL, MSSQL and Redis as both sources and destinations, with object selection, plan review, progress and cancellation. **Version upgrade** copies data from an older server to an already installed newer server of the same family, with detected versions and checks before writing. Data representations and limitations are documented in [MIGRATIONS.md](MIGRATIONS.md).
+
+## GraphQL
+
+**POST /dbf/graphql** supports connection checks, source catalogs, migration planning, start, status and cancellation across the existing database engines. It shares plans and jobs with REST, including version upgrades. Schema: **GET /dbf/graphql/schema**. Usage, authentication and examples: [GRAPHQL.md](GRAPHQL.md).
+=======
 Table files remain the default source. **Between databases** supports MySQL/MariaDB, MongoDB, PostgreSQL, MSSQL and Redis as both sources and destinations, with object selection, plan review, progress and cancellation. Data representations and limitations are documented in [MIGRATIONS.md](MIGRATIONS.md).
 
 ### SQL dump inspection
@@ -90,3 +116,7 @@ Choose **SQL dump** under **Source data** to open a UTF-8 plain-text PostgreSQL,
 ### SQL editor
 
 Choose **SQL editor** under **Source data** for native PostgreSQL, MySQL/MariaDB and SQL Server queries. It includes SQL completion, query tabs, a table explorer, Ctrl+Enter, result filtering/sorting, cell inspection and CSV/JSON export. Rust streams bounded results; the TypeScript grid virtualizes rows and columns. See [SQL_EDITOR.md](SQL_EDITOR.md) for execution semantics, limits and checks.
+<<<<<<< Updated upstream
+=======
+>>>>>>> 7320e4d9f774b75e8b0b3cbc1df9cf1ec0650822
+>>>>>>> Stashed changes

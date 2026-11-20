@@ -1,3 +1,4 @@
+import { trackStartedFileImport } from '@/lib/fileImportJobs';
 import { apiRequest } from "@/client/client";
 import type {
   SqlDialect,
@@ -27,7 +28,7 @@ const start = (input: {
   apiRequest("POST /dbf/session/:id/sql/:dialect/import", {
     params: { id: input.sessionId, dialect: input.dialect },
     body: { ...input.connection, ...input.options },
-  });
+  }).then((status) => trackStartedFileImport(input.sessionId, input.dialect, status));
 export const useSqlConnectionTest = () => useApiMutation(test);
 export const useSqlPlan = () => useApiMutation(plan);
 export const useSqlImport = () => useApiMutation(start);

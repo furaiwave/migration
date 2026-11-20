@@ -7,6 +7,7 @@ import {
 import { randomUUID } from 'crypto';
 import { MongoClient } from 'mongodb';
 import { MigrationConnectors } from './connectors';
+import { validateUpgrade } from './versions';
 import {
   identifier,
   MigrationError,
@@ -147,6 +148,18 @@ export class MigrationService {
     validateConnection(request.source);
     validateConnection(request.target);
     if (
+      request.mode !== undefined &&
+      !['transfer', 'upgrade'].includes(request.mode)
+    )
+      throw new BadRequestException('Unsupported migration mode');
+    if (
+      request.mode === 'upgrade' &&
+      request.source.engine !== request.target.engine
+    )
+      throw new BadRequestException(
+        'Version upgrade requires the same database engine',
+      );
+    if (
       !Array.isArray(request.objects) ||
       !request.objects.length ||
       request.objects.length > 200
@@ -157,7 +170,11 @@ export class MigrationService {
       ? ''
       : request.targetSchema || (engine === 'postgres' ? 'public' : 'dbo');
     const prefix = request.redisPrefix ?? 'migration';
-    if (engine === 'redis' && !/^[A-Za-z0-9_-]{1,64}$/.test(prefix))
+    if (
+      engine === 'redis' &&
+      request.mode !== 'upgrade' &&
+      !/^[A-Za-z0-9_-]{1,64}$/.test(prefix)
+    )
       throw new BadRequestException(
         'Redis prefix must contain 1 to 64 letters, digits, underscores or hyphens',
       );
@@ -234,13 +251,28 @@ export class MigrationService {
           })),
         };
       });
-      target = await this.connectors.target(request.target, prefix);
+      target = await this.connectors.target(
+        request.target,
+        prefix,
+        request.mode,
+      );
+      let versions: Pick<MigrationPlan, 'sourceVersion' | 'targetVersion'> = {};
+      if (request.mode === 'upgrade') {
+        const sourceVersion = await source.version();
+        const targetVersion = await target.version();
+        validateUpgrade(sourceVersion, targetVersion);
+        versions = { sourceVersion, targetVersion };
+      }
       await target.check(objects);
       const warnings = [
         'Only new destination objects are created. Existing tables, collections and Redis keys are never overwritten.',
         'Indexes, primary and foreign key constraints, triggers, defaults, computed expressions and database users are not recreated.',
         'The source remains unchanged. Stop application writes for a consistent migration across tables, collections and Redis keys.',
       ];
+      if (request.mode === 'upgrade')
+        warnings.push(
+          'This copies selected data to an already installed newer server. It does not install server software, perform an in-place upgrade or verify application compatibility. Review all type conversions before switching applications.',
+        );
       if (engine === 'mongo')
         warnings.push(
           'MongoDB writes into temporary collections, then renames without replacing existing collections. Failure can leave temporary collections; their names appear in the final status. SQL JSON columns remain JSON text to preserve numeric precision.',
@@ -273,7 +305,9 @@ export class MigrationService {
       if (engine === 'redis')
         warnings.push(
           request.source.engine === 'redis'
-            ? 'Native Redis types and expiry are preserved. Destination keys use prefix:object:original-key; original key bytes are preserved after that namespace.'
+            ? request.mode === 'upgrade'
+              ? 'Original Redis key names, native values and expiry are preserved. Existing keys are never replaced. Destination modules must support the source DUMP payloads.'
+              : 'Native Redis types and expiry are preserved. Destination keys use prefix:object:original-key; original key bytes are preserved after that namespace.'
             : 'Each source record is stored as a canonical Extended JSON string at prefix:object:row. Nested documents and BSON types remain encoded in that string.',
         );
       if (
@@ -289,6 +323,8 @@ export class MigrationService {
       const view: MigrationPlan = {
         id: randomUUID(),
         expiresAt: new Date(expires).toISOString(),
+        mode: request.mode ?? 'transfer',
+        ...versions,
         sourceEngine: request.source.engine,
         targetEngine: engine,
         objects,
@@ -388,7 +424,22 @@ export class MigrationService {
       target = await this.connectors.target(
         plan.request.target,
         plan.view.redisPrefix,
+        plan.request.mode,
       );
+      if (plan.request.mode === 'upgrade') {
+        const sourceVersion = await source.version();
+        const targetVersion = await target.version();
+        validateUpgrade(sourceVersion, targetVersion);
+        if (
+          JSON.stringify(sourceVersion) !==
+            JSON.stringify(plan.view.sourceVersion) ||
+          JSON.stringify(targetVersion) !==
+            JSON.stringify(plan.view.targetVersion)
+        )
+          throw new MigrationError(
+            'Server version changed after planning; build a new plan',
+          );
+      }
       await target.check(plan.view.objects);
       signal.throwIfAborted();
       writing = true;

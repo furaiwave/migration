@@ -1,3 +1,14 @@
+import type { MigrationStatus } from "@/api/migration.types";
+
+export function mergeMigrationStatus(
+  current: MigrationStatus | null,
+  incoming: MigrationStatus,
+): MigrationStatus | null {
+  if (!current || current.id !== incoming.id || current.state !== "running")
+    return current;
+  return incoming;
+}
+
 const JOB_KEY = "dbf-inspector:database-migration-job";
 export function savedMigrationJob(): string | null {
   try {

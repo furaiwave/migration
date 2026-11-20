@@ -1,3 +1,5 @@
+import { useFileImportRecovery } from '@/hooks/useFileImportRecovery';
+import { useImportActivity } from '@/lib/importActivity';
 import { mergeImportStatus } from "@/lib/importStatus";
 import { NativeSchemaInspector } from './NativeSchemaInspector';
 import { isMissingImportJob, lostImportMessage } from '@/lib/importPolling';
@@ -43,6 +45,14 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
     const [pollError, setPollError] = useState<Error | null>(null)
     const [cancelling, setCancelling] = useState(false)
     const running = job?.state === 'running'
+    const recovery = useFileImportRecovery({
+      sessionId,
+      engine: 'mongo',
+      job,
+      load: fetchMongoImportStatus,
+      onRestore: setJob,
+    });
+    useImportActivity(recovery.restoring || runImport.isPending || !!running);
 
     useEffect(() => {
         if (!job || job.state !== 'running') return;
@@ -66,7 +76,7 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
 
     const database = options.database ?? ''
     const uriValid = URI_PATTERN.test(uri.trim())
-    const busy = test.isPending || runImport.isPending || running
+    const busy = recovery.restoring || test.isPending || runImport.isPending || running
     useNativeSelection('mongo', (server) => { setUri('mongodb://' + (server.host.includes(':') ? '[' + server.host + ']' : server.host) + ':' + server.port); test.reset(); }, busy)
     const databaseExists = test.state.status === 'success' && test.state.data.databases.includes(database)
     // A user limited to one database cannot list them; then nothing is known either way.
@@ -139,7 +149,16 @@ export function MongoImportForm({ sessionId, options, databaseValid, blockingIss
                 </p>
             )}
             {test.state.status === 'error' && <p className="text-xs text-destructive">{errorMessage(test.state.error)}</p>}
-            {runImport.isPending && (
+            {recovery.restoring && (
+              <p role="status" className="text-xs text-muted-foreground">{translate("Checking…")}</p>
+            )}
+      {recovery.error != null && (
+        <p role="alert" className="text-xs text-destructive">{errorMessage(recovery.error)}</p>
+      )}
+      {recovery.missing && !job && (
+        <p role="alert" className="text-xs text-destructive">{lostImportMessage()}</p>
+      )}
+      {runImport.isPending && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="size-3.5 animate-spin" /> {translate("Checking data and connecting…")}
                 </p>

@@ -1,405 +1,547 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { Readable } from 'stream'
-import { binaryFieldText, encodingFromCodePage, fieldBytes, isDbase7, iterateRecords, recordNumberOf, type RecordSet } from '../addon'
-import { createDecoder, type TextDecoderLike } from '../codepages'
-import { transliterate } from '../translit'
-import { plural } from '../plural'
-import { decodeMemoText, memoBlockOf, openMemo, VFP_TYPE_BYTES, type MemoReader } from '../memo'
-import { indexParts, type CdxTag } from '../cdx'
-import { isCharacterType, isKeyableType, typeProblem, type ValueKind } from './mysql-types'
-import type { DbfFieldDescriptor } from '../types/dbf-field.types'
-import type { DbfParseResult } from '../types/dbf-result.types'
-import type { DbfSession } from '../types/dbf-session.types'
-import type { DbfRelationship, FileName, RelationshipKind } from '../types/dbf-relationship.types'
+import { exportComment } from './export-comment';
+import type { ExpectedColumn } from './mysql-schema';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Readable } from 'stream';
+import {
+  binaryFieldText,
+  encodingFromCodePage,
+  fieldBytes,
+  isDbase7,
+  iterateRecords,
+  recordNumberOf,
+  type RecordSet,
+} from '../addon';
+import { createDecoder, type TextDecoderLike } from '../codepages';
+import { transliterate } from '../translit';
+import { plural } from '../plural';
+import {
+  decodeMemoText,
+  memoBlockOf,
+  openMemo,
+  VFP_TYPE_BYTES,
+  type MemoReader,
+} from '../memo';
+import { indexParts, type CdxTag } from '../cdx';
+import {
+  isCharacterType,
+  isKeyableType,
+  typeProblem,
+  type ValueKind,
+} from './mysql-types';
+import type { DbfFieldDescriptor } from '../types/dbf-field.types';
+import type { DbfParseResult } from '../types/dbf-result.types';
+import type { DbfSession } from '../types/dbf-session.types';
 import type {
-    MysqlColumnKey,
-    MysqlExportOptions,
-    MysqlExportPlan,
-    MysqlForeignKeyPlan,
-    MysqlIndexPlan,
-    MysqlQualityEffect,
-    MysqlQualityIssue,
-} from '../types/mysql-export.types'
+  DbfRelationship,
+  FileName,
+  RelationshipKind,
+} from '../types/dbf-relationship.types';
+import type {
+  MysqlColumnKey,
+  MysqlExportOptions,
+  MysqlExportPlan,
+  MysqlForeignKeyPlan,
+  MysqlIndexPlan,
+  MysqlQualityEffect,
+  MysqlQualityIssue,
+} from '../types/mysql-export.types';
 
-const NULL_FLAGS_FIELD_TYPE = '0' // Visual FoxPro system field (_NullFlags)
-const INSERT_BATCH_ROWS = 500
+const NULL_FLAGS_FIELD_TYPE = '0'; // Visual FoxPro system field (_NullFlags)
+const INSERT_BATCH_ROWS = 500;
 // Keeps each INSERT well under MySQL's default max_allowed_packet (64 MB) even with large memos.
-const INSERT_BATCH_CHARS = 4 * 1024 * 1024
-const MAX_IDENTIFIER = 64
-const TABLE_COLLATION = 'utf8mb4_unicode_ci'
+const INSERT_BATCH_CHARS = 4 * 1024 * 1024;
+const MAX_IDENTIFIER = 64;
+const TABLE_COLLATION = 'utf8mb4_unicode_ci';
 // Key columns compare byte-for-byte, the same way uniqueness is checked here.
-const KEY_COLLATION = 'utf8mb4_bin'
-const QUALITY_EXAMPLES = 3
-const EXAMPLE_CHARS = 60
+const KEY_COLLATION = 'utf8mb4_bin';
+const QUALITY_EXAMPLES = 3;
+const EXAMPLE_CHARS = 60;
 // InnoDB limits (DYNAMIC row format): key size in bytes, columns per index, secondary indexes per table.
-const MAX_KEY_BYTES = 3072
-const MAX_KEY_PARTS = 16
-const MAX_INDEXES = 64
+const MAX_KEY_BYTES = 3072;
+const MAX_KEY_PARTS = 16;
+const MAX_INDEXES = 64;
 /** First column of a <table>_deleted table: the record's position in the DBF (RECNO()). */
-const RECNO_COLUMN = '_dbf_recno'
-const SYNC_KEYS_TABLE = '_dbf_sync_keys'
+const RECNO_COLUMN = '_dbf_recno';
+const SYNC_KEYS_TABLE = '_dbf_sync_keys';
 
-type PlanTarget = 'mysql' | 'mongo' | 'sql'
+type PlanTarget = 'mysql' | 'mongo' | 'sql';
 
 // MongoDB refuses documents over 16 MB; a single value close to that cannot fit with the rest.
-const DOCUMENT_VALUE_LIMIT = 16 * 1024 * 1024 - 64 * 1024
+const DOCUMENT_VALUE_LIMIT = 16 * 1024 * 1024 - 64 * 1024;
 
 /** Why a value cannot go into a MongoDB document, or null. */
 function documentProblem(value: string, kind: ValueKind): string | null {
-    const bytes = kind === 'binary' || kind === 'memoBinary' ? value.length / 2 : Buffer.byteLength(value, 'utf8')
-    return bytes > DOCUMENT_VALUE_LIMIT ? "value exceeds the MongoDB document size limit (16 MB)" : null
+  const bytes =
+    kind === 'binary' || kind === 'memoBinary'
+      ? value.length / 2
+      : Buffer.byteLength(value, 'utf8');
+  return bytes > DOCUMENT_VALUE_LIMIT
+    ? 'value exceeds the MongoDB document size limit (16 MB)'
+    : null;
 }
 
 /** Columns may only reference each other within the same family. */
-type KeyFamily = 'numeric' | 'text' | 'date' | null
+type KeyFamily = 'numeric' | 'text' | 'date' | null;
 
 interface FieldMapping {
-    readonly kind: ValueKind
-    readonly mysqlType: string
-    readonly family: KeyFamily
+  readonly kind: ValueKind;
+  readonly mysqlType: string;
+  readonly family: KeyFamily;
 }
 
-function mapField(field: DbfFieldDescriptor, typeByte: number): FieldMapping | null {
-    const { type, length, decimalCount } = field
-    const isVfp = VFP_TYPE_BYTES.has(typeByte)
-    switch (type) {
-        case 'C': case 'V':
-            return { kind: 'text', mysqlType: `VARCHAR(${Math.max(1, length)})`, family: 'text' }
-        case 'N': {
-            if (decimalCount > 0) {
-                const scale = Math.min(decimalCount, 30)
-                const precision = Math.min(65, Math.max(length, scale + 1))
-                return { kind: 'number', mysqlType: `DECIMAL(${precision},${scale})`, family: 'numeric' }
-            }
-            // N(len) holds at most len characters including the sign, so INT/BIGINT never overflow.
-            if (length <= 9) return { kind: 'number', mysqlType: 'INT', family: 'numeric' }
-            if (length <= 18) return { kind: 'number', mysqlType: 'BIGINT', family: 'numeric' }
-            return { kind: 'number', mysqlType: `DECIMAL(${Math.min(65, length)},0)`, family: 'numeric' }
-        }
-        case 'F':
-            return { kind: 'number', mysqlType: 'DOUBLE', family: 'numeric' }
-        case 'D':
-            return { kind: 'date', mysqlType: 'DATE', family: 'date' }
-        case 'T':
-            return length === 8 ? { kind: 'datetime', mysqlType: 'DATETIME', family: 'date' } : null
-        case 'L':
-            return { kind: 'bool', mysqlType: 'TINYINT(1)', family: null }
-        case 'I': case '+':
-            return length === 4 ? { kind: 'int32', mysqlType: 'INT', family: 'numeric' } : null
-        case 'Y':
-            return length === 8 ? { kind: 'currency', mysqlType: 'DECIMAL(19,4)', family: 'numeric' } : null
-        case 'B':
-            // Visual FoxPro: 8-byte double. dBASE: block pointer into a binary memo file.
-            return isVfp
-                ? { kind: 'double', mysqlType: 'DOUBLE', family: 'numeric' }
-                : { kind: 'memoBinary', mysqlType: 'LONGBLOB', family: null }
-        case 'M':
-            return { kind: 'memoText', mysqlType: 'LONGTEXT', family: null }
-        case 'G': case 'P':
-            return { kind: 'memoBinary', mysqlType: 'LONGBLOB', family: null }
-        case 'Q':
-            return { kind: 'binary', mysqlType: `VARBINARY(${Math.max(1, length)})`, family: null }
-        // dBASE 7 Double and Timestamp
-        case 'O':
-            return length === 8 && isDbase7(typeByte) ? { kind: 'double', mysqlType: 'DOUBLE', family: 'numeric' } : null
-        case '@':
-            return length === 8 && isDbase7(typeByte) ? { kind: 'datetime', mysqlType: 'DATETIME', family: 'date' } : null
-        default:
-            return null
+function mapField(
+  field: DbfFieldDescriptor,
+  typeByte: number,
+): FieldMapping | null {
+  const { type, length, decimalCount } = field;
+  const isVfp = VFP_TYPE_BYTES.has(typeByte);
+  switch (type) {
+    case 'C':
+    case 'V':
+      return {
+        kind: 'text',
+        mysqlType: `VARCHAR(${Math.max(1, length)})`,
+        family: 'text',
+      };
+    case 'N': {
+      if (decimalCount > 0) {
+        const scale = Math.min(decimalCount, 30);
+        const precision = Math.min(65, Math.max(length, scale + 1));
+        return {
+          kind: 'number',
+          mysqlType: `DECIMAL(${precision},${scale})`,
+          family: 'numeric',
+        };
+      }
+      // N(len) holds at most len characters including the sign, so INT/BIGINT never overflow.
+      if (length <= 9)
+        return { kind: 'number', mysqlType: 'INT', family: 'numeric' };
+      if (length <= 18)
+        return { kind: 'number', mysqlType: 'BIGINT', family: 'numeric' };
+      return {
+        kind: 'number',
+        mysqlType: `DECIMAL(${Math.min(65, length)},0)`,
+        family: 'numeric',
+      };
     }
+    case 'F':
+      return { kind: 'number', mysqlType: 'DOUBLE', family: 'numeric' };
+    case 'D':
+      return { kind: 'date', mysqlType: 'DATE', family: 'date' };
+    case 'T':
+      return length === 8
+        ? { kind: 'datetime', mysqlType: 'DATETIME(3)', family: 'date' }
+        : null;
+    case 'L':
+      return { kind: 'bool', mysqlType: 'TINYINT(1)', family: null };
+    case 'I':
+    case '+':
+      return length === 4
+        ? { kind: 'int32', mysqlType: 'INT', family: 'numeric' }
+        : null;
+    case 'Y':
+      return length === 8
+        ? { kind: 'currency', mysqlType: 'DECIMAL(19,4)', family: 'numeric' }
+        : null;
+    case 'B':
+      // Visual FoxPro: 8-byte double. dBASE: block pointer into a binary memo file.
+      return isVfp
+        ? { kind: 'double', mysqlType: 'DOUBLE', family: 'numeric' }
+        : { kind: 'memoBinary', mysqlType: 'LONGBLOB', family: null };
+    case 'M':
+      return { kind: 'memoText', mysqlType: 'LONGTEXT', family: null };
+    case 'G':
+    case 'P':
+      return { kind: 'memoBinary', mysqlType: 'LONGBLOB', family: null };
+    case 'Q':
+      return {
+        kind: 'binary',
+        mysqlType: `VARBINARY(${Math.max(1, length)})`,
+        family: null,
+      };
+    // dBASE 7 Double and Timestamp
+    case 'O':
+      return length === 8 && isDbase7(typeByte)
+        ? { kind: 'double', mysqlType: 'DOUBLE', family: 'numeric' }
+        : null;
+    case '@':
+      return length === 8 && isDbase7(typeByte)
+        ? { kind: 'datetime', mysqlType: 'DATETIME(3)', family: 'date' }
+        : null;
+    default:
+      return null;
+  }
 }
 
 // ---------------------------------------------------------------- values
 
-const NUMBER_RE = /^[+-]?(\d+\.?\d*|\.\d+)$/
+const NUMBER_RE = /^[+-]?(\d+\.?\d*|\.\d+)$/;
 
 /** Canonical decimal text, so "007", "7.00" and "+7" compare equal. Garbage like "*****" → null. */
 function normalizeNumber(raw: string): string | null {
-    if (!NUMBER_RE.test(raw)) return null
-    let s = raw.startsWith('+') ? raw.slice(1) : raw
-    const negative = s.startsWith('-')
-    if (negative) s = s.slice(1)
-    const [intPart = '', fracPart = ''] = s.split('.')
-    const int = intPart.replace(/^0+(?=\d)/, '') || '0'
-    const frac = fracPart.replace(/0+$/, '')
-    const body = frac ? `${int}.${frac}` : int
-    return negative && body !== '0' ? `-${body}` : body
+  if (!NUMBER_RE.test(raw)) return null;
+  let s = raw.startsWith('+') ? raw.slice(1) : raw;
+  const negative = s.startsWith('-');
+  if (negative) s = s.slice(1);
+  const [intPart = '', fracPart = ''] = s.split('.');
+  const int = intPart.replace(/^0+(?=\d)/, '') || '0';
+  const frac = fracPart.replace(/0+$/, '');
+  const body = frac ? `${int}.${frac}` : int;
+  return negative && body !== '0' ? `-${body}` : body;
 }
 
 function decodeDate(raw: string): string | null {
-    const m = /^(\d{4})(\d{2})(\d{2})$/.exec(raw)
-    if (!m) return null
-    const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])]
-    if (year < 1000) return null
-    // Rejects impossible dates such as 2023-02-30.
-    const probe = new Date(Date.UTC(year, month - 1, day))
-    if (probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null
-    return `${m[1]}-${m[2]}-${m[3]}`
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(raw);
+  if (!m) return null;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (year < 1) return null;
+  // Rejects impossible dates such as 2023-02-30.
+  const probe = new Date(0);
+  probe.setUTCFullYear(year, month - 1, day);
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() !== month - 1 ||
+    probe.getUTCDate() !== day
+  )
+    return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
 interface ColumnSpec {
-    readonly field: DbfFieldDescriptor
-    readonly kind: ValueKind
-    readonly family: KeyFamily
-    readonly column: string
-    readonly note?: string
-    readonly excluded: boolean
-    readonly typeOverridden: boolean
-    mysqlType: string
-    collation: string | null
-    nullable: boolean
-    key: MysqlColumnKey
-    /** Values with no row in the referenced parent(s) ("table.column"); written as NULL so the foreign key can exist. */
-    orphans: { readonly values: Set<string>; readonly parents: string[] } | null
+  readonly field: DbfFieldDescriptor;
+  readonly kind: ValueKind;
+  readonly family: KeyFamily;
+  readonly column: string;
+  readonly note?: string;
+  readonly excluded: boolean;
+  readonly typeOverridden: boolean;
+  mysqlType: string;
+  collation: string | null;
+  nullable: boolean;
+  key: MysqlColumnKey;
+  /** Values with no row in the referenced parent(s) ("table.column"); written as NULL so the foreign key can exist. */
+  orphans: { readonly values: Set<string>; readonly parents: string[] } | null;
 }
 
 interface DecodeContext {
-    readonly decoder: TextDecoderLike
-    readonly memo: MemoReader | null
-    readonly result: DbfParseResult
+  readonly decoder: TextDecoderLike;
+  readonly memo: MemoReader | null;
+  readonly result: DbfParseResult;
 }
 
 /** The field's bytes, or null where Visual FoxPro stored NULL (see fieldBytes). */
-const fieldSlice = (column: ColumnSpec, record: Buffer): Buffer | null => fieldBytes(record, column.field)
+const fieldSlice = (column: ColumnSpec, record: Buffer): Buffer | null =>
+  fieldBytes(record, column.field);
 
 /** Field value as unquoted canonical text (hex for binary), or null for SQL NULL. */
 function decodeValue(
-    column: ColumnSpec,
-    record: Buffer,
-    { decoder, memo, result }: DecodeContext,
-    emptyStringsAsNull: boolean,
+  column: ColumnSpec,
+  record: Buffer,
+  { decoder, memo, result }: DecodeContext,
+  emptyStringsAsNull: boolean,
 ): string | null {
-    const slice = fieldSlice(column, record)
-    if (slice === null) return null
+  const slice = fieldSlice(column, record);
+  if (slice === null) return null;
 
-    switch (column.kind) {
-        case 'text': {
-            const s = decoder.decode(slice).replace(/\0+$/, '').trimEnd()
-            return s === '' && emptyStringsAsNull ? null : s
-        }
-        case 'number':
-            return normalizeNumber(slice.toString('latin1').trim())
-        case 'date':
-            return decodeDate(slice.toString('latin1').trim())
-        case 'bool': {
-            const c = String.fromCharCode(slice[0] ?? 0x20)
-            if ('TtYy'.includes(c)) return '1'
-            if ('FfNn'.includes(c)) return '0'
-            return null
-        }
-        // Binary numbers and dates decode exactly as the preview shows them.
-        case 'datetime': case 'int32': case 'double': case 'currency':
-            return binaryFieldText(column.field.type, slice, result.header.typeByte) || null
-        case 'binary':
-            return slice.every(b => b === 0) ? null : slice.toString('hex')
-        case 'memoText': {
-            const data = memo?.read(memoBlockOf(slice))
-            if (!data) return null
-            const s = decodeMemoText(decoder, data)
-            return s === '' && emptyStringsAsNull ? null : s
-        }
-        case 'memoBinary': {
-            const data = memo?.read(memoBlockOf(slice))
-            return data && data.length > 0 ? data.toString('hex') : null
-        }
+  switch (column.kind) {
+    case 'text': {
+      const s = decoder.decode(slice).replace(/\0+$/, '').trimEnd();
+      return s === '' && emptyStringsAsNull ? null : s;
     }
+    case 'number':
+      return normalizeNumber(slice.toString('latin1').trim());
+    case 'date':
+      return decodeDate(slice.toString('latin1').trim());
+    case 'bool': {
+      const c = String.fromCharCode(slice[0] ?? 0x20);
+      if ('TtYy'.includes(c)) return '1';
+      if ('FfNn'.includes(c)) return '0';
+      return null;
+    }
+    // Binary numbers and dates decode exactly as the preview shows them.
+    case 'datetime':
+    case 'int32':
+    case 'double':
+    case 'currency':
+      return (
+        binaryFieldText(column.field.type, slice, result.header.typeByte) ||
+        null
+      );
+    case 'binary':
+      return slice.toString('hex');
+    case 'memoText': {
+      const data = memo?.read(memoBlockOf(slice));
+      if (!data) return null;
+      const s = decodeMemoText(decoder, data);
+      return s === '' && emptyStringsAsNull ? null : s;
+    }
+    case 'memoBinary': {
+      const data = memo?.read(memoBlockOf(slice));
+      return data && data.length > 0 ? data.toString('hex') : null;
+    }
+  }
 }
 
 /** The value as it is written for a live record: a child value with no parent row becomes NULL. */
 function exportValue(
-    column: ColumnSpec,
-    record: Buffer,
-    context: DecodeContext,
-    emptyStringsAsNull: boolean,
+  column: ColumnSpec,
+  record: Buffer,
+  context: DecodeContext,
+  emptyStringsAsNull: boolean,
 ): string | null {
-    const value = decodeValue(column, record, context, emptyStringsAsNull)
-    return value !== null && column.orphans?.values.has(value) ? null : value
+  const value = decodeValue(column, record, context, emptyStringsAsNull);
+  return value !== null && column.orphans?.values.has(value) ? null : value;
 }
 
 const orphanProblem = (column: ColumnSpec): string =>
-    `missing from ${column.orphans!.parents.join(' / ')}; written as NULL to maintain the relationship`
+  `missing from ${column.orphans!.parents.join(' / ')}; written as NULL to maintain the relationship`;
 
 /**
  * For a value that decoded to NULL: why data was lost, or null when the DBF cell was simply blank.
  * This is what separates "empty in the old system" from "garbage the old system let in".
  */
-function lossReason(column: ColumnSpec, record: Buffer, memo: MemoReader | null): string | null {
-    const slice = fieldSlice(column, record)
-    // NULL in Visual FoxPro stays NULL; nothing is lost.
-    if (slice === null) return null
-    switch (column.kind) {
-        case 'number':
-            return slice.toString('latin1').trim() === '' ? null : "not a number; becomes NULL"
-        case 'date': {
-            const raw = slice.toString('latin1').trim()
-            return raw === '' || /^0+$/.test(raw) ? null : "invalid date; becomes NULL"
-        }
-        case 'datetime':
-            return slice.every(b => b === 0 || b === 0x20) ? null : "invalid date or time; becomes NULL"
-        case 'bool':
-            return ' ?\0'.includes(String.fromCharCode(slice[0] ?? 0x20)) ? null : "not T/F/Y/N; becomes NULL"
-        case 'double':
-            return "not a finite number; becomes NULL"
-        case 'memoText': case 'memoBinary': {
-            const block = memoBlockOf(slice)
-            if (block === 0) return null
-            if (!memo) return "memo file (.fpt/.dbt) was not uploaded; becomes NULL"
-            return memo.read(block) ? null : "block is missing from the memo file; becomes NULL"
-        }
-        default:
-            return null
+function lossReason(
+  column: ColumnSpec,
+  record: Buffer,
+  memo: MemoReader | null,
+): string | null {
+  const slice = fieldSlice(column, record);
+  // NULL in Visual FoxPro stays NULL; nothing is lost.
+  if (slice === null) return null;
+  switch (column.kind) {
+    case 'number':
+      return slice.toString('latin1').trim() === ''
+        ? null
+        : 'not a number; becomes NULL';
+    case 'date': {
+      const raw = slice.toString('latin1').trim();
+      return raw === '' || /^0+$/.test(raw)
+        ? null
+        : 'invalid date; becomes NULL';
     }
+    case 'datetime':
+      return slice.every((b) => b === 0 || b === 0x20)
+        ? null
+        : 'invalid date or time; becomes NULL';
+    case 'bool':
+      return ' ?\0'.includes(String.fromCharCode(slice[0] ?? 0x20))
+        ? null
+        : 'not T/F/Y/N; becomes NULL';
+    case 'double':
+      return 'not a finite number; becomes NULL';
+    case 'memoText':
+    case 'memoBinary': {
+      const block = memoBlockOf(slice);
+      if (block === 0) return null;
+      if (!memo) return 'memo file (.fpt/.dbt) was not uploaded; becomes NULL';
+      return memo.read(block)
+        ? null
+        : 'block is missing from the memo file; becomes NULL';
+    }
+    default:
+      return null;
+  }
 }
 
 /** The cell as it sits in the DBF, for showing next to a problem. */
-function rawDisplay(column: ColumnSpec, record: Buffer, decoder: TextDecoderLike): string {
-    const slice = fieldSlice(column, record)
-    if (slice === null) return 'NULL'
-    switch (column.kind) {
-        case 'memoText': case 'memoBinary':
-            return `memo block ${memoBlockOf(slice)}`
-        case 'binary': case 'datetime': case 'int32': case 'double': case 'currency':
-            return `0x${slice.toString('hex')}`
-        case 'text':
-            return decoder.decode(slice).replace(/\0+$/, '').trimEnd()
-        default:
-            return slice.toString('latin1').trim()
-    }
+function rawDisplay(
+  column: ColumnSpec,
+  record: Buffer,
+  decoder: TextDecoderLike,
+): string {
+  const slice = fieldSlice(column, record);
+  if (slice === null) return 'NULL';
+  switch (column.kind) {
+    case 'memoText':
+    case 'memoBinary':
+      return `memo block ${memoBlockOf(slice)}`;
+    case 'binary':
+    case 'datetime':
+    case 'int32':
+    case 'double':
+    case 'currency':
+      return `0x${slice.toString('hex')}`;
+    case 'text':
+      return decoder.decode(slice).replace(/\0+$/, '').trimEnd();
+    default:
+      return slice.toString('latin1').trim();
+  }
 }
 
-const shorten = (s: string): string => (s.length > EXAMPLE_CHARS ? `${s.slice(0, EXAMPLE_CHARS)}…` : s)
+const shorten = (s: string): string =>
+  s.length > EXAMPLE_CHARS ? `${s.slice(0, EXAMPLE_CHARS)}…` : s;
 
 // ---------------------------------------------------------------- SQL text
 
 const STRING_ESCAPES: Readonly<Record<string, string>> = {
-    '\0': '\\0', '\n': '\\n', '\r': '\\r', '\\': '\\\\', "'": "\\'", '"': '\\"', '\x1a': '\\Z',
-}
+  '\0': '\\0',
+  '\n': '\\n',
+  '\r': '\\r',
+  '\\': '\\\\',
+  "'": "\\'",
+  '"': '\\"',
+  '\x1a': '\\Z',
+};
 
 const quoteString = (s: string): string =>
-    `'${s.replace(/[\0\n\r\\'"\x1a]/g, c => STRING_ESCAPES[c] ?? c)}'`
+  // eslint-disable-next-line no-control-regex -- SQL literals must escape the SUB control character.
+  `'${s.replace(/[\0\n\r\\'"\x1a]/g, (c) => STRING_ESCAPES[c] ?? c)}'`;
 
-const quoteIdent = (s: string): string => `\`${s.replace(/`/g, '``')}\``
+const quoteIdent = (s: string): string => `\`${s.replace(/`/g, '``')}\``;
 
 function sqlLiteral(kind: ValueKind, value: string | null): string {
-    if (value === null) return 'NULL'
-    switch (kind) {
-        case 'text': case 'memoText': case 'date': case 'datetime': return quoteString(value)
-        case 'binary': case 'memoBinary': return `X'${value}'`
-        default: return value
-    }
+  if (value === null) return 'NULL';
+  switch (kind) {
+    case 'text':
+    case 'memoText':
+    case 'date':
+    case 'datetime':
+      return quoteString(value);
+    case 'binary':
+    case 'memoBinary':
+      return `X'${value}'`;
+    default:
+      return value;
+  }
 }
 
 function toIdentifier(raw: string, fallback: string): string {
-    let s = transliterate(raw).replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '')
-    if (s === '') s = fallback
-    if (/^\d/.test(s)) s = `_${s}`
-    return s.slice(0, MAX_IDENTIFIER)
+  let s = transliterate(raw)
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (s === '') s = fallback;
+  if (/^\d/.test(s)) s = `_${s}`;
+  return s.slice(0, MAX_IDENTIFIER);
 }
 
 function uniqueName(base: string, taken: Set<string>): string {
-    let name = base
-    for (let i = 2; taken.has(name); i++) {
-        const suffix = `_${i}`
-        name = base.slice(0, MAX_IDENTIFIER - suffix.length) + suffix
-    }
-    taken.add(name)
-    return name
+  let name = base;
+  for (let i = 2; taken.has(name); i++) {
+    const suffix = `_${i}`;
+    name = base.slice(0, MAX_IDENTIFIER - suffix.length) + suffix;
+  }
+  taken.add(name);
+  return name;
 }
 
-const isMemoKind = (kind: ValueKind): boolean => kind === 'memoText' || kind === 'memoBinary'
+const isMemoKind = (kind: ValueKind): boolean =>
+  kind === 'memoText' || kind === 'memoBinary';
 
 /** Why the encoding was guessed: no mark, a mark this reader does not know, or a mark the text contradicts. */
 const describeMark = (codePage: number): string =>
-    codePage === 0 ? "no code page marker"
-        : encodingFromCodePage(codePage) ? `code page marker specifies ${encodingFromCodePage(codePage)}, but the text uses another encoding`
-            : `unknown code page marker 0x${codePage.toString(16).toUpperCase()}`
+  codePage === 0
+    ? 'no code page marker'
+    : encodingFromCodePage(codePage)
+      ? `code page marker specifies ${encodingFromCodePage(codePage)}, but the text uses another encoding`
+      : `unknown code page marker 0x${codePage.toString(16).toUpperCase()}`;
 
 const describeField = (f: DbfFieldDescriptor): string =>
-    `${f.name} ${f.type}(${f.length}${f.decimalCount > 0 ? `,${f.decimalCount}` : ''})`
+  `${f.name} ${f.type}(${f.length}${f.decimalCount > 0 ? `,${f.decimalCount}` : ''})`;
 
 const FIXED_KEY_BYTES: Readonly<Record<string, number>> = {
-    TINYINT: 1, SMALLINT: 2, MEDIUMINT: 3, INT: 4, INTEGER: 4, BIGINT: 8, FLOAT: 4, DOUBLE: 8,
-    DATE: 3, TIME: 3, YEAR: 1, DATETIME: 8, TIMESTAMP: 4,
-}
+  TINYINT: 1,
+  SMALLINT: 2,
+  MEDIUMINT: 3,
+  INT: 4,
+  INTEGER: 4,
+  BIGINT: 8,
+  FLOAT: 4,
+  DOUBLE: 8,
+  DATE: 3,
+  TIME: 3,
+  YEAR: 1,
+  DATETIME: 8,
+  TIMESTAMP: 4,
+};
 
 /** Declared length of CHAR/VARCHAR/BINARY/VARBINARY, or null for other types. */
 const sizedLength = (type: string): number | null => {
-    const m = /^(?:VAR)?(?:CHAR|BINARY)\((\d+)\)$/.exec(type)
-    return m ? Number(m[1]) : null
-}
+  const m = /^(?:VAR)?(?:CHAR|BINARY)\((\d+)\)$/.exec(type);
+  return m ? Number(m[1]) : null;
+};
 
 /** Worst-case bytes a column takes in an index key (utf8mb4: 4 bytes per character). */
 function keyBytes(type: string, prefix: number | undefined): number {
-    const length = sizedLength(type)
-    if (length !== null) {
-        const n = Math.min(length, prefix ?? length)
-        return /BINARY/.test(type) ? n : n * 4
-    }
-    const decimal = /^(?:DECIMAL|NUMERIC)\((\d+)/.exec(type)
-    if (decimal) return Math.ceil(Number(decimal[1]) / 2) + 1
-    return FIXED_KEY_BYTES[/^[A-Z]+/.exec(type)?.[0] ?? ''] ?? 8
+  const length = sizedLength(type);
+  if (length !== null) {
+    const n = Math.min(length, prefix ?? length);
+    return /BINARY/.test(type) ? n : n * 4;
+  }
+  const decimal = /^(?:DECIMAL|NUMERIC)\((\d+)/.exec(type);
+  if (decimal) return Math.ceil(Number(decimal[1]) / 2) + 1;
+  const temporal = /^(TIME|TIMESTAMP)\(([0-6])\)$/.exec(type);
+  if (temporal)
+    return FIXED_KEY_BYTES[temporal[1]] + Math.ceil(Number(temporal[2]) / 2);
+  return FIXED_KEY_BYTES[/^[A-Z]+/.exec(type)?.[0] ?? ''] ?? 8;
 }
 
 // ---------------------------------------------------------------- plan
 
 interface TableSpec {
-    readonly fileName: FileName
-    readonly table: string
-    readonly result: DbfParseResult
-    readonly source: Buffer
-    readonly encoding: string
-    readonly decoder: TextDecoderLike
-    readonly memo: MemoReader | null
-    readonly memoFile: string | null
-    readonly rowCount: number
-    readonly deletedCount: number
-    /** Where records marked deleted go (keepDeleted), or null when they are dropped. */
-    deletedTable: string | null
-    /** Every mappable field, excluded ones included so the plan can show them. */
-    readonly columns: readonly ColumnSpec[]
-    readonly skippedFields: readonly string[]
-    readonly excluded: boolean
-    /** The user chose the primary key (or chose none); relationships must not add one. */
-    readonly pkLocked: boolean
-    /** .CDX candidate tag that became the primary key. */
-    primaryTag: string | null
-    indexes: readonly IndexSpec[]
+  readonly fileName: FileName;
+  readonly table: string;
+  readonly result: DbfParseResult;
+  readonly source: Buffer;
+  readonly encoding: string;
+  readonly decoder: TextDecoderLike;
+  readonly memo: MemoReader | null;
+  readonly memoFile: string | null;
+  readonly rowCount: number;
+  readonly deletedCount: number;
+  /** Where records marked deleted go (keepDeleted), or null when they are dropped. */
+  deletedTable: string | null;
+  /** Every mappable field, excluded ones included so the plan can show them. */
+  readonly columns: readonly ColumnSpec[];
+  readonly skippedFields: readonly string[];
+  readonly excluded: boolean;
+  /** The user chose the primary key (or chose none); relationships must not add one. */
+  readonly pkLocked: boolean;
+  /** .CDX candidate tag that became the primary key. */
+  primaryTag: string | null;
+  indexes: readonly IndexSpec[];
 }
 
 interface IndexSpec {
-    readonly tag: CdxTag
-    readonly name: string
-    readonly parts: readonly { readonly column: ColumnSpec; readonly prefix?: number }[]
-    readonly status: MysqlIndexPlan['status']
-    readonly note?: string
+  readonly tag: CdxTag;
+  readonly name: string;
+  readonly parts: readonly {
+    readonly column: ColumnSpec;
+    readonly prefix?: number;
+  }[];
+  readonly status: MysqlIndexPlan['status'];
+  readonly note?: string;
 }
 
 /** Columns that end up in the MySQL table. */
-const active = (table: TableSpec): readonly ColumnSpec[] => table.columns.filter(c => !c.excluded)
+const active = (table: TableSpec): readonly ColumnSpec[] =>
+  table.columns.filter((c) => !c.excluded);
 
 // InnoDB (strict mode, DYNAMIC rows) refuses CREATE TABLE when the worst-case row exceeds about
 // half a 16 KB page (8126 bytes). It counts a variable-length column of up to 255 bytes in full;
 // a longer one, or TEXT/BLOB, may move to overflow pages and counts as its 40-byte local part plus
 // length bytes (measured on MySQL 8.0: 190 x VARCHAR(64) is accepted, 250 x is not; 70 x VARCHAR(30)
 // is refused). Separately, MySQL caps the declared size of all columns at 65 535 bytes.
-const INNODB_ROW_TARGET = 8000
-const MYSQL_ROW_LIMIT = 65_535
-const INLINE_MAX_BYTES = 255
-const OVERFLOW_POINTER = 42
+const INNODB_ROW_TARGET = 8000;
+const MYSQL_ROW_LIMIT = 65_535;
+const INLINE_MAX_BYTES = 255;
+const OVERFLOW_POINTER = 42;
 // utf8mb4 VARCHAR(64) is 256 bytes: the shortest text column InnoDB may move out of the row.
-const OFF_PAGE_VARCHAR = 'VARCHAR(64)'
+const OFF_PAGE_VARCHAR = 'VARCHAR(64)';
 
 /** Bytes a column type counts towards the 65 535 limit and towards InnoDB's in-row limit. */
 function rowBytes(type: string): { declared: number; inRow: number } {
-    const length = sizedLength(type)
-    if (length !== null) {
-        const bytes = /BINARY/.test(type) ? length : length * 4
-        const declared = bytes + (bytes > INLINE_MAX_BYTES ? 2 : 1)
-        return { declared, inRow: bytes > INLINE_MAX_BYTES ? OVERFLOW_POINTER : declared }
-    }
-    if (!isKeyableType(type)) return { declared: 12, inRow: OVERFLOW_POINTER }
-    const bytes = keyBytes(type, undefined)
-    return { declared: bytes, inRow: bytes }
+  const length = sizedLength(type);
+  if (length !== null) {
+    const bytes = /BINARY/.test(type) ? length : length * 4;
+    const declared = bytes + (bytes > INLINE_MAX_BYTES ? 2 : 1);
+    return {
+      declared,
+      inRow: bytes > INLINE_MAX_BYTES ? OVERFLOW_POINTER : declared,
+    };
+  }
+  if (!isKeyableType(type)) return { declared: 12, inRow: OVERFLOW_POINTER };
+  const bytes = keyBytes(type, undefined);
+  return { declared: bytes, inRow: bytes };
 }
 
 /**
@@ -408,1131 +550,1683 @@ function rowBytes(type: string): { declared: number; inRow: number } {
  * VARCHAR(64), which InnoDB may store out of the row; if the declared total is still too large, the
  * widest become TEXT. Types the user set are left alone. Values are never cut.
  */
-function fitRowSize(table: TableSpec, warnings: string[], indexed: ReadonlySet<ColumnSpec>): void {
-    const columns = active(table)
-    // Record header, NULL bitmap and InnoDB's hidden row id and transaction columns.
-    const overhead = 30 + Math.ceil(columns.length / 8)
-    const total = (kind: 'declared' | 'inRow') => columns.reduce((n, c) => n + rowBytes(c.mysqlType)[kind], overhead)
-    const changeable = (c: ColumnSpec) => !c.typeOverridden && /^VARCHAR\(/.test(c.mysqlType)
-    const widest = (pick: (c: ColumnSpec) => boolean) =>
-        columns.filter(c => changeable(c) && pick(c)).sort((a, b) => sizedLength(b.mysqlType)! - sizedLength(a.mysqlType)!)[0]
+function fitRowSize(
+  table: TableSpec,
+  warnings: string[],
+  indexed: ReadonlySet<ColumnSpec>,
+): void {
+  const columns = active(table);
+  // Record header, NULL bitmap and InnoDB's hidden row id and transaction columns.
+  const overhead = 30 + Math.ceil(columns.length / 8);
+  const total = (kind: 'declared' | 'inRow') =>
+    columns.reduce((n, c) => n + rowBytes(c.mysqlType)[kind], overhead);
+  const changeable = (c: ColumnSpec) =>
+    !c.typeOverridden && /^VARCHAR\(/.test(c.mysqlType);
+  const widest = (pick: (c: ColumnSpec) => boolean) =>
+    columns
+      .filter((c) => changeable(c) && pick(c))
+      .sort((a, b) => sizedLength(b.mysqlType)! - sizedLength(a.mysqlType)!)[0];
 
-    const toText: string[] = []
-    const textable = (c: ColumnSpec) => c.key === null && !indexed.has(c)
-    for (let c = widest(textable); c && total('declared') > MYSQL_ROW_LIMIT; c = widest(textable)) {
-        c.mysqlType = 'TEXT'
-        toText.push(c.column)
-    }
-    const widened: string[] = []
-    const inRow = (c: ColumnSpec) => rowBytes(c.mysqlType).inRow > OVERFLOW_POINTER
-    for (let c = widest(inRow); c && total('inRow') > INNODB_ROW_TARGET; c = widest(inRow)) {
-        c.mysqlType = OFF_PAGE_VARCHAR
-        widened.push(c.column)
-    }
+  const toText: string[] = [];
+  const textable = (c: ColumnSpec) => c.key === null && !indexed.has(c);
+  for (
+    let c = widest(textable);
+    c && total('declared') > MYSQL_ROW_LIMIT;
+    c = widest(textable)
+  ) {
+    c.mysqlType = 'TEXT';
+    toText.push(c.column);
+  }
+  const widened: string[] = [];
+  const inRow = (c: ColumnSpec) =>
+    rowBytes(c.mysqlType).inRow > OVERFLOW_POINTER;
+  for (
+    let c = widest(inRow);
+    c && total('inRow') > INNODB_ROW_TARGET;
+    c = widest(inRow)
+  ) {
+    c.mysqlType = OFF_PAGE_VARCHAR;
+    widened.push(c.column);
+  }
 
-    const list = (names: string[]) => names.length > 6 ? `${names.slice(0, 6).join(', ')} and ${names.length - 6}` : names.join(', ')
-    if (toText.length > 0)
-        warnings.push(`${table.table}: combined columns exceed the MySQL 64 KB row limit; ${list(toText)} were changed to TEXT`)
-    if (widened.length > 0)
-        warnings.push(`${table.table}: ${widened.length} ${plural(widened.length, "short text column widened", "short text columns widened")} to ${OFF_PAGE_VARCHAR} to fit within the InnoDB 8 KB row limit (${list(widened)}); values are unchanged`)
-    if (total('inRow') > INNODB_ROW_TARGET)
-        warnings.push(`${table.table}: the row may still exceed the InnoDB 8 KB limit. Exclude some columns or use TEXT for wide columns.`)
+  const list = (names: string[]) =>
+    names.length > 6
+      ? `${names.slice(0, 6).join(', ')} and ${names.length - 6}`
+      : names.join(', ');
+  if (toText.length > 0)
+    warnings.push(
+      `${table.table}: combined columns exceed the MySQL 64 KB row limit; ${list(toText)} were changed to TEXT`,
+    );
+  if (widened.length > 0)
+    warnings.push(
+      `${table.table}: ${widened.length} ${plural(widened.length, 'short text column widened', 'short text columns widened')} to ${OFF_PAGE_VARCHAR} to fit within the InnoDB 8 KB row limit (${list(widened)}); values are unchanged`,
+    );
+  if (total('inRow') > INNODB_ROW_TARGET)
+    warnings.push(
+      `${table.table}: the row may still exceed the InnoDB 8 KB limit. Exclude some columns or use TEXT for wide columns.`,
+    );
 }
 
-const primaryKeyOf = (table: TableSpec): ColumnSpec | undefined => active(table).find(c => c.key === 'PRI')
+const primaryKeyOf = (table: TableSpec): ColumnSpec | undefined =>
+  active(table).find((c) => c.key === 'PRI');
 
 /** The column list of an index as MySQL writes it: `name`(20) for a prefix. */
 const indexColumnSql = (part: IndexSpec['parts'][number]): string =>
-    `${quoteIdent(part.column.column)}${part.prefix ? `(${part.prefix})` : ''}`
+  `${quoteIdent(part.column.column)}${part.prefix ? `(${part.prefix})` : ''}`;
 
 /** The tables a live import writes to, with the columns it expects in them — checked before a sync. */
 export interface ExpectedTable {
-    readonly table: string
-    readonly columns: readonly string[]
-    /** Empty: the table has no primary key and is reloaded as a whole. */
-    readonly primaryKey: readonly string[]
+  readonly table: string;
+  readonly columns: readonly ExpectedColumn[];
+  /** Empty: the table has no primary key and is reloaded as a whole. */
+  readonly primaryKey: readonly string[];
 }
 
 interface ColumnStats {
-    /** Each non-NULL value and the number of rows holding it. */
-    readonly values: Map<string, number>
-    unique: boolean
-    hasNull: boolean
+  /** Each non-NULL value and the number of rows holding it. */
+  readonly values: Map<string, number>;
+  unique: boolean;
+  hasNull: boolean;
 }
 
 interface AcceptedForeignKey {
-    readonly name: string
-    readonly child: { readonly table: TableSpec; readonly column: ColumnSpec }
-    readonly parent: { readonly table: TableSpec; readonly column: ColumnSpec }
+  readonly name: string;
+  readonly child: { readonly table: TableSpec; readonly column: ColumnSpec };
+  readonly parent: { readonly table: TableSpec; readonly column: ColumnSpec };
 }
 
 interface InternalPlan {
-    readonly options: MysqlExportOptions
-    readonly tables: readonly TableSpec[]
-    readonly foreignKeys: readonly MysqlForeignKeyPlan[]
-    readonly accepted: readonly AcceptedForeignKey[]
-    readonly quality: readonly MysqlQualityIssue[]
-    readonly warnings: readonly string[]
+  readonly options: MysqlExportOptions;
+  readonly tables: readonly TableSpec[];
+  readonly foreignKeys: readonly MysqlForeignKeyPlan[];
+  readonly accepted: readonly AcceptedForeignKey[];
+  readonly quality: readonly MysqlQualityIssue[];
+  readonly warnings: readonly string[];
 }
 
 // Most deliberate first: user links, then suffix-inferred keys, then plain name matches.
 const RELATIONSHIP_PRIORITY: Readonly<Record<RelationshipKind, number>> = {
-    manual: 0,
-    auto_fk: 1,
-    auto_name: 2,
-}
+  manual: 0,
+  auto_fk: 1,
+  auto_name: 2,
+};
 
 // A guessed link is taken with values missing from the parent only while they are a minority of the
 // child's rows; beyond that the guess is more likely wrong than the data. User links have no limit.
-const MAX_ORPHAN_SHARE = 0.25
-const ORPHAN_EXAMPLES = 5
+const MAX_ORPHAN_SHARE = 0.25;
+const ORPHAN_EXAMPLES = 5;
 
 /** A column as a document database sees it: a name and how its values decode. */
 export interface DocumentColumn {
-    readonly nullable: boolean
-    readonly field: DbfFieldDescriptor
-    readonly name: string
-    readonly kind: ValueKind
-    readonly key: MysqlColumnKey
-    readonly excluded: boolean
-    readonly note?: string
+  readonly nullable: boolean;
+  readonly field: DbfFieldDescriptor;
+  readonly name: string;
+  readonly kind: ValueKind;
+  readonly key: MysqlColumnKey;
+  readonly excluded: boolean;
+  readonly note?: string;
 }
 
 /** One planned table for a document database, with its records decoded on demand. */
 export interface DocumentTable {
-    readonly fileName: FileName
-    readonly name: string
-    readonly deletedName: string | null
-    readonly rowCount: number
-    readonly deletedCount: number
-    readonly encoding: string
-    readonly memoFile: string | null
-    readonly indexFile: string | null
-    readonly excluded: boolean
-    readonly skippedFields: readonly string[]
-    /** .CDX candidate tag that became the primary key. */
-    readonly primaryTag: string | null
-    readonly tags: readonly CdxTag[]
-    readonly dbfFieldNames: readonly string[]
-    /** Every mappable field, excluded ones included. */
-    readonly columns: readonly DocumentColumn[]
-    /** Canonical text per exported column (in `columns` order, excluded ones skipped), null for NULL. */
-    readonly records: (set: RecordSet) => Iterable<{ readonly recno: number; readonly values: readonly (string | null)[] }>
+  readonly fileName: FileName;
+  readonly name: string;
+  readonly deletedName: string | null;
+  readonly rowCount: number;
+  readonly deletedCount: number;
+  readonly encoding: string;
+  readonly memoFile: string | null;
+  readonly indexFile: string | null;
+  readonly excluded: boolean;
+  readonly skippedFields: readonly string[];
+  /** .CDX candidate tag that became the primary key. */
+  readonly primaryTag: string | null;
+  readonly tags: readonly CdxTag[];
+  readonly dbfFieldNames: readonly string[];
+  /** Every mappable field, excluded ones included. */
+  readonly columns: readonly DocumentColumn[];
+  /** Canonical text per exported column (in `columns` order, excluded ones skipped), null for NULL. */
+  readonly records: (set: RecordSet) => Iterable<{
+    readonly recno: number;
+    readonly values: readonly (string | null)[];
+  }>;
 }
 
 export interface DocumentSource {
-    readonly tables: readonly DocumentTable[]
-    /** Links whose data was checked: the parent column is unique and holds every child value. */
-    readonly links: readonly {
-        readonly child: { readonly table: DocumentTable; readonly column: string }
-        readonly parent: { readonly table: DocumentTable; readonly column: string }
-    }[]
-    readonly foreignKeys: readonly MysqlForeignKeyPlan[]
-    readonly quality: readonly MysqlQualityIssue[]
-    readonly warnings: readonly string[]
+  readonly tables: readonly DocumentTable[];
+  /** Links whose data was checked: the parent column is unique and holds every child value. */
+  readonly links: readonly {
+    readonly child: { readonly table: DocumentTable; readonly column: string };
+    readonly parent: { readonly table: DocumentTable; readonly column: string };
+  }[];
+  readonly foreignKeys: readonly MysqlForeignKeyPlan[];
+  readonly quality: readonly MysqlQualityIssue[];
+  readonly warnings: readonly string[];
 }
 
 /** One piece of the dump, tagged so a live import can report where it is. */
 export interface SqlChunk {
-    readonly sql: string
-    /** The table this piece creates or fills. */
-    readonly table?: string
-    /** Rows inserted by this piece. */
-    readonly rows?: number
-    /** Part of the foreign key phase at the end. */
-    readonly foreignKeys?: boolean
-    /**
-     * Sync bookkeeping, one statement per chunk so MySQL's answer can be read:
-     * upsert = INSERT … ON DUPLICATE KEY UPDATE, delete = rows gone from the DBF, reload = table emptied.
-     */
-    readonly sync?: 'upsert' | 'delete' | 'reload'
+  readonly sql: string;
+  /** The table this piece creates or fills. */
+  readonly table?: string;
+  /** Rows inserted by this piece. */
+  readonly rows?: number;
+  /** Part of the foreign key phase at the end. */
+  readonly foreignKeys?: boolean;
+  /**
+   * Sync bookkeeping, one statement per chunk so MySQL's answer can be read:
+   * upsert = INSERT … ON DUPLICATE KEY UPDATE, delete = rows gone from the DBF, reload = table emptied.
+   */
+  readonly sync?: 'upsert' | 'delete' | 'reload';
 }
 
 function* sqlText(chunks: Iterable<SqlChunk>): Generator<string> {
-    for (const chunk of chunks) yield chunk.sql
+  for (const chunk of chunks) yield chunk.sql;
 }
 
-function countRecords(source: Buffer, header: DbfParseResult['header'], set: RecordSet): number {
-    let n = 0
-    for (const _ of iterateRecords(source, header, set)) n++
-    return n
+function countRecords(
+  source: Buffer,
+  header: DbfParseResult['header'],
+  set: RecordSet,
+): number {
+  let n = 0;
+  for (const record of iterateRecords(source, header, set)) {
+    void record;
+    n++;
+  }
+  return n;
 }
 
 /**
  * Runs `alter` only when the named constraint is not there yet. Append and sync write into tables
  * an earlier run created, and MySQL has no ADD CONSTRAINT IF NOT EXISTS.
  */
-function unlessConstraintExists(table: string, constraint: string, alter: string): string {
-    return `SET @dbf_sql = IF((SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS ` +
-        `WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ${quoteString(table)} AND CONSTRAINT_NAME = ${quoteString(constraint)}) = 0, ` +
-        `${quoteString(alter)}, 'DO 0');\n` +
-        'PREPARE dbf_stmt FROM @dbf_sql;\nEXECUTE dbf_stmt;\nDEALLOCATE PREPARE dbf_stmt;\n'
+function unlessConstraintExists(
+  table: string,
+  constraint: string,
+  alter: string,
+): string {
+  return (
+    `SET @dbf_sql = IF((SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS ` +
+    `WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ${quoteString(table)} AND CONSTRAINT_NAME = ${quoteString(constraint)}) = 0, ` +
+    `${quoteString(alter)}, 'DO 0');\n` +
+    'PREPARE dbf_stmt FROM @dbf_sql;\nEXECUTE dbf_stmt;\nDEALLOCATE PREPARE dbf_stmt;\n'
+  );
 }
 
 @Injectable()
 export class MysqlExportService {
-    plan(
-        session: DbfSession,
-        relationships: readonly DbfRelationship[],
-        options: MysqlExportOptions,
-    ): MysqlExportPlan {
-        return this.toPublicPlan(this.buildPlan(session, relationships, options))
-    }
+  plan(
+    session: DbfSession,
+    relationships: readonly DbfRelationship[],
+    options: MysqlExportOptions,
+  ): MysqlExportPlan {
+    return this.toPublicPlan(this.buildPlan(session, relationships, options));
+  }
 
-    /** The dump as a stream: tables are read record by record, never held as one big string. */
-    exportSql(
-        session: DbfSession,
-        relationships: readonly DbfRelationship[],
-        options: MysqlExportOptions,
-    ): Readable {
-        return Readable.from(sqlText(this.generateSql(this.buildPlan(session, relationships, options))))
-    }
+  /** The dump as a stream: tables are read record by record, never held as one big string. */
+  exportSql(
+    session: DbfSession,
+    relationships: readonly DbfRelationship[],
+    options: MysqlExportOptions,
+  ): Readable {
+    return Readable.from(
+      sqlText(
+        this.generateSql(this.buildPlan(session, relationships, options)),
+      ),
+    );
+  }
 
-    /** Plan plus the dump split into executable pieces, for running straight against a server. */
-    statements(
-        session: DbfSession,
-        relationships: readonly DbfRelationship[],
-        options: MysqlExportOptions,
-    ): { plan: MysqlExportPlan; chunks: Iterable<SqlChunk>; expected: ExpectedTable[] } {
-        const plan = this.buildPlan(session, relationships, options)
-        const expected: ExpectedTable[] = []
-        for (const t of plan.tables) {
-            if (t.excluded) continue
-            const pk = primaryKeyOf(t)
-            expected.push({ table: t.table, columns: active(t).map(c => c.column), primaryKey: pk ? [pk.column] : [] })
-            if (t.deletedTable)
-                expected.push({ table: t.deletedTable, columns: [RECNO_COLUMN, ...active(t).map(c => c.column)], primaryKey: [RECNO_COLUMN] })
-        }
-        return { plan: this.toPublicPlan(plan), chunks: this.generateSql(plan), expected }
-    }
-
-    private toPublicPlan(plan: InternalPlan): MysqlExportPlan {
-        return {
-            database: plan.options.database ?? null,
-            tables: plan.tables.map(t => ({
-                fileName: t.fileName,
-                table: t.table,
-                rowCount: t.rowCount,
-                deletedRows: t.deletedCount,
-                deletedTable: t.deletedTable,
-                sync: primaryKeyOf(t) ? 'upsert' as const : 'reload' as const,
-                indexFile: t.result.index?.fileName ?? null,
-                indexes: t.indexes.map(ix => ({
-                    tag: ix.tag.name,
-                    expression: ix.tag.expression,
-                    filter: ix.tag.filter,
-                    candidate: ix.tag.candidate,
-                    unique: ix.tag.unique,
-                    name: ix.name,
-                    columns: ix.parts.map(p => `${p.column.column}${p.prefix ? `(${p.prefix})` : ''}`),
-                    status: ix.status,
-                    note: ix.note,
-                })),
-                encoding: t.encoding,
-                memoFile: t.memoFile,
-                excluded: t.excluded,
-                skippedFields: t.skippedFields,
-                columns: t.columns.map(c => ({
-                    dbfField: c.field.name,
-                    dbfType: c.field.type,
-                    length: c.field.length,
-                    decimals: c.field.decimalCount,
-                    column: c.column,
-                    mysqlType: c.mysqlType,
-                    nullable: c.nullable,
-                    key: c.key,
-                    excluded: c.excluded,
-                    typeOverridden: c.typeOverridden,
-                    note: c.note,
-                })),
+  /** Plan plus the dump split into executable pieces, for running straight against a server. */
+  statements(
+    session: DbfSession,
+    relationships: readonly DbfRelationship[],
+    options: MysqlExportOptions,
+  ): {
+    plan: MysqlExportPlan;
+    chunks: Iterable<SqlChunk>;
+    expected: ExpectedTable[];
+  } {
+    const plan = this.buildPlan(session, relationships, options);
+    const expected: ExpectedTable[] = [];
+    for (const t of plan.tables) {
+      if (t.excluded) continue;
+      const pk = primaryKeyOf(t);
+      expected.push({
+        table: t.table,
+        columns: active(t).map((c) => ({
+          name: c.column,
+          type: c.mysqlType,
+          collation: c.collation,
+        })),
+        primaryKey: pk ? [pk.column] : [],
+      });
+      if (t.deletedTable)
+        expected.push({
+          table: t.deletedTable,
+          columns: [
+            { name: RECNO_COLUMN, type: 'INT UNSIGNED', collation: null },
+            ...active(t).map((c) => ({
+              name: c.column,
+              type: c.mysqlType,
+              collation: null,
             })),
-            foreignKeys: plan.foreignKeys,
-            quality: plan.quality,
-            warnings: plan.warnings,
-        }
+          ],
+          primaryKey: [RECNO_COLUMN],
+        });
     }
+    return {
+      plan: this.toPublicPlan(plan),
+      chunks: this.generateSql(plan),
+      expected,
+    };
+  }
 
-    /**
-     * The same plan for a document database: names, exclusions, keys and checked links as for MySQL,
-     * without MySQL's types, row size limits and index rules. Values come out as canonical text.
-     */
-    documentSource(
-        session: DbfSession,
-        relationships: readonly DbfRelationship[],
-        options: MysqlExportOptions,
-        target: 'mongo' | 'sql' = 'mongo',
-    ): DocumentSource {
-        const plan = this.buildPlan(session, relationships, options, target)
-        const tableOf = new Map<TableSpec, DocumentTable>()
-        const tables = plan.tables.map((t): DocumentTable => {
-            const columns = active(t)
-            const doc: DocumentTable = {
-                fileName: t.fileName,
-                name: t.table,
-                deletedName: t.deletedTable,
-                rowCount: t.rowCount,
-                deletedCount: t.deletedCount,
-                encoding: t.encoding,
-                memoFile: t.memoFile,
-                indexFile: t.result.index?.fileName ?? null,
-                excluded: t.excluded,
-                skippedFields: t.skippedFields,
-                primaryTag: t.primaryTag,
-                tags: t.result.index?.tags ?? [],
-                dbfFieldNames: t.result.header.fields.map(f => f.name),
-                columns: t.columns.map(c => ({
-                    field: c.field, name: c.column, kind: c.kind, key: c.key, excluded: c.excluded, note: c.note, nullable: c.nullable,
-                })),
-                records: function* (set: RecordSet) {
-                    for (const record of iterateRecords(t.source, t.result.header, set)) {
-                        yield {
-                            recno: recordNumberOf(t.source, t.result.header, record),
-                            values: columns.map(c => set === 'deleted'
-                                ? decodeValue(c, record, t, options.emptyStringsAsNull)
-                                : exportValue(c, record, t, options.emptyStringsAsNull)),
-                        }
-                    }
-                },
-            }
-            tableOf.set(t, doc)
-            return doc
-        })
-        return {
-            tables,
-            links: plan.accepted.map(a => ({
-                child: { table: tableOf.get(a.child.table)!, column: a.child.column.column },
-                parent: { table: tableOf.get(a.parent.table)!, column: a.parent.column.column },
-            })),
-            foreignKeys: plan.foreignKeys,
-            quality: plan.quality,
-            warnings: plan.warnings,
-        }
-    }
+  private toPublicPlan(plan: InternalPlan): MysqlExportPlan {
+    return {
+      database: plan.options.database ?? null,
+      tables: plan.tables.map((t) => ({
+        fileName: t.fileName,
+        table: t.table,
+        rowCount: t.rowCount,
+        deletedRows: t.deletedCount,
+        deletedTable: t.deletedTable,
+        sync: primaryKeyOf(t) ? ('upsert' as const) : ('reload' as const),
+        indexFile: t.result.index?.fileName ?? null,
+        indexes: t.indexes.map((ix) => ({
+          tag: ix.tag.name,
+          expression: ix.tag.expression,
+          filter: ix.tag.filter,
+          candidate: ix.tag.candidate,
+          unique: ix.tag.unique,
+          name: ix.name,
+          columns: ix.parts.map(
+            (p) => `${p.column.column}${p.prefix ? `(${p.prefix})` : ''}`,
+          ),
+          status: ix.status,
+          note: ix.note,
+        })),
+        encoding: t.encoding,
+        memoFile: t.memoFile,
+        excluded: t.excluded,
+        skippedFields: t.skippedFields,
+        columns: t.columns.map((c) => ({
+          dbfField: c.field.name,
+          dbfType: c.field.type,
+          length: c.field.length,
+          decimals: c.field.decimalCount,
+          column: c.column,
+          mysqlType: c.mysqlType,
+          nullable: c.nullable,
+          key: c.key,
+          excluded: c.excluded,
+          typeOverridden: c.typeOverridden,
+          note: c.note,
+        })),
+      })),
+      foreignKeys: plan.foreignKeys,
+      quality: plan.quality,
+      warnings: plan.warnings,
+    };
+  }
 
-    private buildPlan(
-        session: DbfSession,
-        relationships: readonly DbfRelationship[],
-        options: MysqlExportOptions,
-        target: PlanTarget = 'mysql',
-    ): InternalPlan {
-        const { overrides } = options
-        const warnings: string[] = []
-        const tables: TableSpec[] = []
-
-        // Names the user typed are reserved first, so generated names step around them.
-        const takenTables = new Set<string>()
-        const reserve = (name: string | undefined, taken: Set<string>, what: string): string | null => {
-            if (!name) return null
-            if (taken.has(name)) {
-                warnings.push(`${what}: name "${name}" was specified twice; a suffix was added`)
-                return null
-            }
-            taken.add(name)
-            return name
-        }
-        const userTableNames = new Map<string, string | null>()
-        for (const fileName of session.files.keys())
-            userTableNames.set(fileName, reserve(overrides[fileName]?.name, takenTables, fileName))
-
-        for (const [fileName, result] of session.files) {
-            const source = session.sources.get(fileName)
-            if (!source) throw new NotFoundException(`File contents not found: ${fileName}`)
-
-            const tableOverride = overrides[fileName] ?? {}
-            const columnOverrides = tableOverride.columns ?? {}
-            const memo = source.memo ? openMemo(source.memo.buffer, source.memo.format) : null
-            const encoding = result.encoding
-            const skippedFields: string[] = []
-
-            const takenColumns = new Set<string>()
-            const userColumnNames = new Map<string, string | null>()
-            for (const field of result.header.fields)
-                userColumnNames.set(field.name, reserve(columnOverrides[field.name]?.name, takenColumns, `${fileName}.${field.name}`))
-
-            const columns: ColumnSpec[] = []
-            for (const field of result.header.fields) {
-                if ((field.type as string) === NULL_FLAGS_FIELD_TYPE) continue
-                const mapping = mapField(field, result.header.typeByte)
-                if (!mapping) {
-                    skippedFields.push(describeField(field))
-                    continue
-                }
-                const columnOverride = columnOverrides[field.name] ?? {}
-                columns.push({
-                    field,
-                    kind: mapping.kind,
-                    family: mapping.family,
-                    column: userColumnNames.get(field.name) ?? uniqueName(toIdentifier(field.name, 'column'), takenColumns),
-                    note: isMemoKind(mapping.kind)
-                        ? source.memo ? `from ${source.memo.fileName}` : "memo file (.fpt/.dbt) was not uploaded; exported as NULL"
-                        : undefined,
-                    excluded: columnOverride.exclude === true,
-                    // A MySQL type the user typed means nothing to a document database.
-                    typeOverridden: target === 'mysql' && columnOverride.type !== undefined,
-                    mysqlType: (target === 'mysql' ? columnOverride.type : undefined) ?? mapping.mysqlType,
-                    collation: null,
-                    nullable: true,
-                    key: null,
-                    orphans: null,
-                })
-            }
-
-            const included = columns.filter(c => !c.excluded)
-            const excluded = tableOverride.exclude === true || included.length === 0
-            if (included.length === 0 && tableOverride.exclude !== true)
-                warnings.push(`${fileName}: no fields remain to export; table skipped`)
-
-            // A primary key the user picked; null means "no primary key at all".
-            const pk = tableOverride.primaryKey
-            if (typeof pk === 'string') {
-                const column = included.find(c => c.field.name === pk)
-                if (column) {
-                    column.key = 'PRI'
-                    column.nullable = false
-                    if (isCharacterType(column.mysqlType)) column.collation = KEY_COLLATION
-                } else {
-                    warnings.push(`${fileName}: primary key field ${pk} is excluded from export; the table will have no primary key`)
-                }
-            }
-
-            if (!excluded) {
-                if (skippedFields.length > 0)
-                    warnings.push(`${fileName}: fields without a MySQL equivalent were skipped: ${skippedFields.join(', ')}`)
-                if (!memo && included.some(c => isMemoKind(c.kind)))
-                    warnings.push(`${fileName}: memo fields are exported as NULL. Upload ${fileName.replace(/\.dbf$/i, '')}.FPT (or .DBT) alongside the table to migrate them`)
-                if (result.encodingSource === 'detected' && included.some(c => c.kind === 'text'))
-                    warnings.push(`${fileName}: ${describeMark(result.header.codePage)}; encoding detected from text: ${encoding}. If the preview text is incorrect, select an encoding on the table tab.`)
-                if (options.indexes && result.header.tableFlags.hasStructuralCdx && !result.index)
-                    warnings.push(`${fileName}: the table has a .CDX index file. Upload ${fileName.replace(/\.dbf$/i, '')}.CDX alongside the table to migrate its indexes`)
-                if (options.indexes && result.index?.error)
-                    warnings.push(`${result.index.fileName}: could not read (${result.index.error}); indexes from this file are not used`)
-            }
-
-            tables.push({
-                fileName,
-                table: userTableNames.get(fileName) ?? uniqueName(toIdentifier(fileName.replace(/\.dbf$/i, ''), 'table'), takenTables),
-                result,
-                source: source.dbf,
-                encoding,
-                decoder: createDecoder(encoding),
-                memo,
-                memoFile: source.memo?.fileName ?? null,
-                rowCount: countRecords(source.dbf, result.header, 'live'),
-                deletedCount: countRecords(source.dbf, result.header, 'deleted'),
-                deletedTable: null,
-                columns,
-                skippedFields,
-                excluded,
-                pkLocked: pk !== undefined,
-                primaryTag: null,
-                indexes: [],
-            })
-        }
-
-        // Named after every real table, so a generated "clients_deleted" never takes a user's name.
-        if (options.keepDeleted && options.includeData) {
-            for (const t of tables) {
-                if (!t.excluded && t.deletedCount > 0)
-                    t.deletedTable = uniqueName(toIdentifier(`${t.table}_deleted`, 'deleted'), takenTables)
-            }
-        }
-
-        // A FoxPro candidate key is the developer's own primary key; it goes first so links do not pick another.
-        if (options.indexes) this.primaryKeysFromCandidates(tables, options, warnings)
-
-        const { foreignKeys, accepted } = options.foreignKeys
-            ? this.planForeignKeys(tables, relationships, options)
-            : { foreignKeys: [], accepted: [] }
-
-        // Row size and MySQL index rules mean nothing to a document database; it plans its own indexes.
-        if (target === 'mysql') {
-            // Types are final now (overrides, keys, foreign key alignment); make sure each row fits InnoDB.
-            // Columns in a foreign key or a .CDX index must stay indexable, so they never become TEXT.
-            const indexed = new Set<ColumnSpec>(accepted.flatMap(a => [a.child.column, a.parent.column]))
-            for (const t of tables) {
-                if (!options.indexes) continue
-                const fieldNames = t.result.header.fields.map(f => f.name)
-                for (const tag of t.result.index?.tags ?? []) {
-                    try {
-                        for (const part of indexParts(tag.expression, fieldNames)) {
-                            const column = t.columns.find(c => c.field.name === part.field)
-                            if (column) indexed.add(column)
-                        }
-                    } catch { /* an expression that cannot be translated creates no index */ }
-                }
-            }
-            for (const t of tables) if (!t.excluded) fitRowSize(t, warnings, indexed)
-
-            if (options.indexes) {
-                for (const t of tables) if (!t.excluded) t.indexes = this.planIndexes(t, options)
-            }
-
-            if (options.writeMode === 'sync') {
-                const keyless = tables.filter(t => !t.excluded && !primaryKeyOf(t)).map(t => t.table)
-                if (keyless.length > 0)
-                    warnings.push(`Sync: no primary key in ${keyless.join(', ')}. These tables are cleared and reloaded on every sync. Select a primary key in the plan to update rows individually.`)
-            }
-        }
-
-        const quality = this.assessQuality(tables, options, target)
-        return { options, tables, foreignKeys, accepted, quality, warnings }
-    }
-
-    /**
-     * Turns detected relationships into FOREIGN KEY constraints, checked against the data:
-     * the referenced side must hold unique values and every child value must exist in it.
-     */
-    private planForeignKeys(
-        tables: readonly TableSpec[],
-        relationships: readonly DbfRelationship[],
-        options: MysqlExportOptions,
-    ): { foreignKeys: MysqlForeignKeyPlan[]; accepted: AcceptedForeignKey[] } {
-        const byFile = new Map(tables.map(t => [t.fileName as string, t]))
-        const resolve = (file: string, field: string) => {
-            const table = byFile.get(file)
-            const column = table?.columns.find(c => c.field.name === field)
-            return table && column ? { table, column } : null
-        }
-        const exclusionOf = (file: string, field: string): string | null => {
-            const end = resolve(file, field)
-            if (end?.table.excluded) return `${end.table.table} is excluded from export`
-            if (end?.column.excluded) return `${end.table.table}.${end.column.column} is excluded from export`
-            return null
-        }
-
-        type Endpoint = NonNullable<ReturnType<typeof resolve>>
-        const candidates: { rel: DbfRelationship; source: Endpoint; target: Endpoint }[] = []
-        const foreignKeys: MysqlForeignKeyPlan[] = []
-        // Same naming as created keys (MySQL table.column), falling back to DBF names when unresolved.
-        const displayName = (file: string, field: string) => {
-            const end = resolve(file, field)
-            return { table: end?.table.table ?? byFile.get(file)?.table ?? file, column: end?.column.column ?? field }
-        }
-        const skipRaw = (rel: DbfRelationship, reason: string) => {
-            const child = displayName(rel.sourceFile, rel.sourceField)
-            const parent = displayName(rel.targetFile, rel.targetField)
-            foreignKeys.push({
-                name: '',
-                childTable: child.table, childColumn: child.column,
-                parentTable: parent.table, parentColumn: parent.column,
-                source: rel.kind, status: 'skip', reason,
-            })
-        }
-
-        const seenPairs = new Set<string>()
-        const ordered = [...relationships].sort((a, b) => RELATIONSHIP_PRIORITY[a.kind] - RELATIONSHIP_PRIORITY[b.kind])
-        for (const rel of ordered) {
-            const ends = [`${rel.sourceFile}.${rel.sourceField}`, `${rel.targetFile}.${rel.targetField}`].sort()
-            const pairKey = ends.join('|')
-            if (seenPairs.has(pairKey)) continue
-            seenPairs.add(pairKey)
-
-            const source = resolve(rel.sourceFile, rel.sourceField)
-            const target = resolve(rel.targetFile, rel.targetField)
-            if (!source || !target) {
-                const missing = !source ? `${rel.sourceFile}.${rel.sourceField}` : `${rel.targetFile}.${rel.targetField}`
-                skipRaw(rel, `field ${missing} is missing or has no MySQL equivalent`)
-                continue
-            }
-            const exclusion = exclusionOf(rel.sourceFile, rel.sourceField) ?? exclusionOf(rel.targetFile, rel.targetField)
-            if (exclusion) {
-                skipRaw(rel, exclusion)
-                continue
-            }
-            if (source.column === target.column) {
-                skipRaw(rel, "a column cannot reference itself")
-                continue
-            }
-            if (!isKeyableType(source.column.mysqlType) || !isKeyableType(target.column.mysqlType)) {
-                skipRaw(rel, "TEXT/BLOB columns cannot be used in foreign keys; use VARCHAR(n)")
-                continue
-            }
-            if (source.column.family === null || source.column.family !== target.column.family ||
-                (source.column.family === 'date' && source.column.mysqlType !== target.column.mysqlType)) {
-                skipRaw(rel, `incompatible types: ${describeField(source.column.field)} and ${describeField(target.column.field)}`)
-                continue
-            }
-            candidates.push({ rel, source, target })
-        }
-
-        // One pass per table collects the values of every column that takes part in a link.
-        const needed = new Map<TableSpec, Set<ColumnSpec>>()
-        for (const { source, target } of candidates) {
-            for (const end of [source, target]) {
-                const set = needed.get(end.table) ?? new Set<ColumnSpec>()
-                set.add(end.column)
-                needed.set(end.table, set)
-            }
-        }
-        const stats = new Map<ColumnSpec, ColumnStats>()
-        for (const [table, columns] of needed) {
-            for (const [column, s] of this.collectStats(table, [...columns], options)) stats.set(column, s)
-        }
-
-        let accepted: AcceptedForeignKey[] = []
-        const takenNames = new Set<string>()
-        const seenLinks = new Set<string>()
-
-        const linkBase = (rel: DbfRelationship, parent: Endpoint, child: Endpoint) => ({
-            childTable: child.table.table, childColumn: child.column.column,
-            parentTable: parent.table.table, parentColumn: parent.column.column,
-            source: rel.kind,
-        })
-
-        // A direction works when the parent column is unique; child values it does not hold are orphans.
-        const evaluate = (parent: Endpoint, child: Endpoint) => {
-            const parentStats = stats.get(parent.column)!
-            const childStats = stats.get(child.column)!
-            if (!parentStats.unique || parentStats.values.size === 0)
-                return { parent, child, parentStats, orphans: null }
-            const values: string[] = []
-            let rows = 0
-            let childRows = 0
-            for (const [v, n] of childStats.values) {
-                childRows += n
-                if (!parentStats.values.has(v)) {
-                    values.push(v)
-                    rows += n
-                }
-            }
-            return { parent, child, parentStats, orphans: { values, rows, childRows } }
-        }
-        type Direction = ReturnType<typeof evaluate>
-
-        // Orphans become NULL: allowed in a plain nullable column that nothing else refers to,
-        // and for a guessed link only while they are a minority of the child's rows.
-        const orphansBlocker = (rel: DbfRelationship, d: Direction): string | null => {
-            const o = d.orphans!
-            if (!options.orphansAsNull)
-                return "enable \"Unmatched values → NULL\" to create the key"
-            if (d.child.column.key !== null || !d.child.column.nullable)
-                return `${d.child.table.table}.${d.child.column.column} is a table key and cannot contain NULL`
-            if (accepted.some(a => a.parent.column === d.child.column))
-                return `column ${d.child.table.table}.${d.child.column.column} is already referenced by another table`
-            if (rel.kind !== 'manual' && o.rows > o.childRows * MAX_ORPHAN_SHARE)
-                return `unmatched values affect ${Math.round(o.rows / o.childRows * 100)}% of rows; the tables may be unrelated. If they are related, add a relationship manually to replace these values with NULL`
-            return null
-        }
-
-        for (const { rel, source, target } of candidates) {
-            const directions = [evaluate(target, source), evaluate(source, target)]
-            // Explicit links keep their declared direction first; for name matches the
-            // null-free, fuller column is the more likely primary key.
-            if (rel.kind === 'auto_name') {
-                directions.sort((a, b) =>
-                    Number(a.parentStats.hasNull) - Number(b.parentStats.hasNull) ||
-                    b.parentStats.values.size - a.parentStats.values.size)
-            }
-
-            const usable = directions.filter(d => d.orphans !== null)
-            const byOrphanRows = [...usable].sort((a, b) => a.orphans!.rows - b.orphans!.rows)
-            const chosen = usable.find(d => d.orphans!.values.length === 0) ??
-                byOrphanRows.find(d => orphansBlocker(rel, d) === null)
-            if (!chosen) {
-                const closest = byOrphanRows[0]
-                if (!closest) {
-                    foreignKeys.push({
-                        ...linkBase(rel, directions[0]!.parent, directions[0]!.child), name: '', status: 'skip',
-                        reason: "neither column contains unique values, so neither can be referenced",
-                    })
-                } else {
-                    const base = linkBase(rel, closest.parent, closest.child)
-                    const o = closest.orphans!
-                    foreignKeys.push({
-                        ...base, name: '', status: 'skip',
-                        reason: `values in ${base.childTable}.${base.childColumn} with no match in ${base.parentTable}.${base.parentColumn}: ${o.values.length} across ${o.rows} ${plural(o.rows, "row", "rows")} (e.g. '${o.values[0]}') — ${orphansBlocker(rel, closest)}`,
-                    })
-                }
-                continue
-            }
-
-            const { parent, child, parentStats } = chosen
-            const base = linkBase(rel, parent, child)
-            const linkKey = `${base.childTable}.${base.childColumn}->${base.parentTable}.${base.parentColumn}`
-            if (seenLinks.has(linkKey)) continue
-            // A guessed link never gives a column a second parent; user links (sorted first) win.
-            const existing = rel.kind !== 'manual' ? accepted.find(a => a.child.column === child.column) : undefined
-            if (existing) {
-                foreignKeys.push({
-                    ...base, name: '', status: 'skip',
-                    reason: `${base.childTable}.${base.childColumn} already references ${existing.parent.table.table}.${existing.parent.column.column}`,
-                })
-                continue
-            }
-            // A column whose values were set to NULL cannot be referred to: those rows would lose their parent.
-            if (parent.column.orphans) {
-                foreignKeys.push({
-                    ...base, name: '', status: 'skip',
-                    reason: `in ${base.parentTable}.${base.parentColumn} unmatched values are replaced with NULL (relationship to ${parent.column.orphans.parents.join(' / ')}), so this column cannot be referenced`,
-                })
-                continue
-            }
-            seenLinks.add(linkKey)
-
-            if (parent.column.key === null) {
-                const hasPrimary = parent.table.pkLocked || parent.table.columns.some(c => c.key === 'PRI')
-                if (!hasPrimary && !parentStats.hasNull) {
-                    parent.column.key = 'PRI'
-                    parent.column.nullable = false
-                } else {
-                    parent.column.key = 'UNI'
-                }
-            }
-            if (parent.column.family === 'text') {
-                if (isCharacterType(parent.column.mysqlType)) parent.column.collation = KEY_COLLATION
-                if (isCharacterType(child.column.mysqlType)) child.column.collation = KEY_COLLATION
-            }
-
-            const name = uniqueName(toIdentifier(`fk_${base.childTable}_${base.childColumn}`, 'fk'), takenNames)
-            accepted.push({ name, child, parent })
-            const missing = chosen.orphans!.values
-            if (missing.length > 0) {
-                const where = `${base.parentTable}.${base.parentColumn}`
-                if (child.column.orphans) {
-                    for (const v of missing) child.column.orphans.values.add(v)
-                    child.column.orphans.parents.push(where)
-                } else {
-                    child.column.orphans = { values: new Set(missing), parents: [where] }
-                }
-            }
-            foreignKeys.push({
-                ...base, name, status: 'create',
-                orphans: missing.length > 0
-                    ? { values: missing.length, rows: chosen.orphans!.rows, examples: missing.slice(0, ORPHAN_EXAMPLES) }
-                    : undefined,
-            })
-        }
-
-        // InnoDB wants identical integer types on both ends; repeat so chains settle.
-        // A type the user set by hand is never changed behind their back.
-        for (let changed = true, guard = 0; changed && guard < 10; guard++) {
-            changed = false
-            for (const { child, parent } of accepted) {
-                if (child.column.family === 'numeric' && !child.column.typeOverridden && child.column.mysqlType !== parent.column.mysqlType) {
-                    child.column.mysqlType = parent.column.mysqlType
-                    changed = true
-                }
-            }
-        }
-        // …and where a hand-set type still disagrees, the constraint cannot be created.
-        const conflicting = new Set(accepted.filter(a =>
-            a.child.column.family === 'numeric' && a.child.column.mysqlType !== a.parent.column.mysqlType))
-        if (conflicting.size > 0) {
-            for (const a of conflicting) {
-                const i = foreignKeys.findIndex(fk => fk.name === a.name)
-                foreignKeys[i] = {
-                    ...foreignKeys[i]!, name: '', status: 'skip',
-                    reason: `types differ: ${a.child.column.column} ${a.child.column.mysqlType} and ${a.parent.column.column} ${a.parent.column.mysqlType}; assign the same type to both`,
-                }
-            }
-            accepted = accepted.filter(a => !conflicting.has(a))
-        }
-
-        // Keys that will exist first; skipped ones after, each group in detection order.
-        foreignKeys.sort((a, b) => Number(a.status === 'skip') - Number(b.status === 'skip'))
-        return { foreignKeys, accepted }
-    }
-
-    /**
-     * Tables without a chosen primary key take their .CDX candidate tag on a single field as one,
-     * as long as the live records really are unique and filled in.
-     */
-    private primaryKeysFromCandidates(tables: readonly TableSpec[], options: MysqlExportOptions, warnings: string[]): void {
-        for (const table of tables) {
-            if (table.excluded || table.pkLocked || primaryKeyOf(table)) continue
-            const fieldNames = table.result.header.fields.map(f => f.name)
-            for (const tag of table.result.index?.tags ?? []) {
-                if (!tag.candidate || tag.filter) continue
-                let parts: ReturnType<typeof indexParts>
-                try {
-                    parts = indexParts(tag.expression, fieldNames)
-                } catch {
-                    continue
-                }
-                const part = parts.length === 1 && !parts[0]!.prefix ? parts[0]! : null
-                const column = part && table.columns.find(c => c.field.name === part.field)
-                if (!column || column.excluded || !isKeyableType(column.mysqlType)) continue
-
-                const stats = this.collectStats(table, [column], options).get(column)!
-                if (stats.unique && !stats.hasNull) {
-                    column.key = 'PRI'
-                    column.nullable = false
-                    if (isCharacterType(column.mysqlType)) column.collation = KEY_COLLATION
-                    table.primaryTag = tag.name
-                } else {
-                    warnings.push(`${table.fileName}: candidate key ${tag.name} (${tag.expression}) contains ${stats.hasNull ? "empty" : "duplicate"} values among active records; not used as the primary key`)
-                }
-                break
-            }
-        }
-    }
-
-    /** The table's .CDX tags as MySQL indexes, or the reason each one cannot be. */
-    private planIndexes(table: TableSpec, options: MysqlExportOptions): IndexSpec[] {
-        const fieldNames = table.result.header.fields.map(f => f.name)
-        const excluded = new Set(options.overrides[table.fileName]?.excludedIndexes ?? [])
-        const pk = primaryKeyOf(table)
-        const unique = active(table).filter(c => c.key === 'UNI')
-        // Column lists that already have an index in MySQL, with what that index is.
-        const covered = new Map<string, string>()
-        if (pk) covered.set(quoteIdent(pk.column), "primary key")
-        for (const c of unique) covered.set(quoteIdent(c.column), `unique key on ${c.column}`)
-        const taken = new Set(unique.map(c => `uq_${c.column}`.slice(0, MAX_IDENTIFIER)))
-
-        const out: IndexSpec[] = []
-        let created = 0
-        for (const tag of table.result.index?.tags ?? []) {
-            if (tag.name === table.primaryTag) {
-                out.push({ tag, name: '', parts: pk ? [{ column: pk }] : [], status: 'primary', note: "FoxPro candidate key; used as the primary key" })
-                continue
-            }
-            const skip = (note: string, parts: IndexSpec['parts'] = []) => out.push({ tag, name: '', parts, status: 'skip', note })
-
-            let parsed: ReturnType<typeof indexParts>
-            try {
-                parsed = indexParts(tag.expression, fieldNames)
-            } catch (err) {
-                skip(`expression cannot be converted for MySQL: ${err instanceof Error ? err.message : String(err)}`)
-                continue
-            }
-            if (parsed.length === 0) {
-                skip("expression uses no fields (only DELETED() or constants)")
-                continue
-            }
-
-            const parts: { column: ColumnSpec; prefix?: number }[] = []
-            let problem: string | null = null
-            for (const p of parsed) {
-                const column = table.columns.find(c => c.field.name === p.field)
-                if (!column) problem = `${p.field} has no corresponding MySQL column`
-                else if (column.excluded) problem = `${column.column} is excluded from export`
-                else if (!isKeyableType(column.mysqlType)) problem = `${column.column} has type ${column.mysqlType}, which cannot be indexed; use VARCHAR(n)`
-                if (problem || !column) break
-                const length = sizedLength(column.mysqlType)
-                parts.push({ column, prefix: p.prefix && length !== null && p.prefix < length ? p.prefix : undefined })
-            }
-            if (problem) {
-                skip(problem, parts)
-                continue
-            }
-            if (excluded.has(tag.name)) {
-                out.push({ tag, name: '', parts, status: 'excluded' })
-                continue
-            }
-            const bytes = parts.reduce((n, p) => n + keyBytes(p.column.mysqlType, p.prefix), 0)
-            if (parts.length > MAX_KEY_PARTS) {
-                skip(`columns: ${parts.length}; MySQL allows at most ${MAX_KEY_PARTS} per index`, parts)
-                continue
-            }
-            if (bytes > MAX_KEY_BYTES) {
-                skip(`key would use up to ${bytes} ${plural(bytes, "byte", "bytes")}, InnoDB allows ${MAX_KEY_BYTES}`, parts)
-                continue
-            }
-            const signature = parts.map(indexColumnSql).join(',')
-            const same = covered.get(signature)
-            if (same) {
-                skip(`same columns as ${same}`, parts)
-                continue
-            }
-            if (created >= MAX_INDEXES) {
-                skip(`MySQL allows at most ${MAX_INDEXES} indexes per table`, parts)
-                continue
-            }
-
-            const name = uniqueName(toIdentifier(`ix_${tag.name}`, 'ix'), taken)
-            covered.set(signature, `index ${name}`)
-            created++
-            const notes = [
-                tag.filter && `FOR ${tag.filter} is not migrated; MySQL indexes all rows`,
-                tag.candidate && "FoxPro candidate key; exported as a regular index because the table uses another primary key",
-                tag.unique && "FoxPro UNIQUE only skips duplicate keys; exported as a regular index",
-            ].filter(Boolean)
-            out.push({ tag, name, parts, status: 'create', note: notes.length > 0 ? notes.join('; ') : undefined })
-        }
-        return out
-    }
-
-    private collectStats(
-        table: TableSpec,
-        columns: readonly ColumnSpec[],
-        options: MysqlExportOptions,
-    ): Map<ColumnSpec, ColumnStats> {
-        const stats = new Map<ColumnSpec, ColumnStats>(
-            columns.map(c => [c, { values: new Map<string, number>(), unique: true, hasNull: false }]),
-        )
-        for (const record of iterateRecords(table.source, table.result.header)) {
-            for (const [column, s] of stats) {
-                const value = decodeValue(column, record, table, options.emptyStringsAsNull)
-                if (value === null) {
-                    s.hasNull = true
-                    continue
-                }
-                const n = s.values.get(value) ?? 0
-                if (n > 0) s.unique = false
-                s.values.set(value, n + 1)
-            }
-        }
-        return stats
-    }
-
-    /**
-     * Reads every record the way the export will and reports, per column, values that would be
-     * lost (stored as NULL) or that strict-mode MySQL would reject (stopping the import).
-     */
-    private assessQuality(tables: readonly TableSpec[], options: MysqlExportOptions, engine: PlanTarget): MysqlQualityIssue[] {
-        const mysql = engine === 'mysql'
-        const issues = new Map<string, MysqlQualityIssue & { examples: string[]; count: number }>()
-        const report = (table: TableSpec, target: string, column: ColumnSpec, problem: string, effect: MysqlQualityEffect, example: string | null) => {
-            const key = `${target}\u0000${column.column}\u0000${problem}`
-            let issue = issues.get(key)
-            if (!issue) {
-                issue = {
-                    fileName: table.fileName, table: target,
-                    dbfField: column.field.name, column: column.column,
-                    problem, effect, count: 0, examples: [],
-                }
-                issues.set(key, issue)
-            }
-            issue.count++
-            if (example !== null && issue.examples.length < QUALITY_EXAMPLES && !issue.examples.includes(shorten(example)))
-                issue.examples.push(shorten(example))
-        }
-
-        for (const table of tables) {
-            if (table.excluded) continue
-            const columns = active(table)
-
-            for (const column of columns) {
-                if (mysql && column.key !== null && !isKeyableType(column.mysqlType)) {
-                    issues.set(`${table.table}\u0000${column.column}\u0000keyable`, {
-                        fileName: table.fileName, table: table.table, dbfField: column.field.name, column: column.column,
-                        problem: `${column.mysqlType} cannot be a ${column.key === 'PRI' ? "primary" : "unique"} key; use VARCHAR(n)`,
-                        effect: 'fail', count: table.rowCount, examples: [],
-                    })
-                }
-            }
-
-            const keySeen = new Map<ColumnSpec, Set<string>>(
-                columns.filter(c => c.key !== null).map(c => [c, new Set<string>()]),
-            )
-            if (!options.includeData) continue
-
-            // Deleted records land in a keyless copy: only the values themselves can fail there.
-            const sets: { set: RecordSet; target: string; keyed: boolean }[] = [{ set: 'live', target: table.table, keyed: true }]
-            if (table.deletedTable) sets.push({ set: 'deleted', target: table.deletedTable, keyed: false })
-
-            for (const { set, target, keyed } of sets) {
-                for (const record of iterateRecords(table.source, table.result.header, set)) {
-                    for (const column of columns) {
-                        const value = decodeValue(column, record, table, options.emptyStringsAsNull)
-                        if (keyed && value !== null && column.orphans?.values.has(value)) {
-                            report(table, target, column, orphanProblem(column), 'null', value)
-                            continue
-                        }
-                        if (value === null) {
-                            const loss = lossReason(column, record, table.memo)
-                            if (loss) report(table, target, column, loss, 'null', rawDisplay(column, record, table.decoder))
-                            if (keyed && !column.nullable)
-                                report(table, target, column, engine !== 'mongo' ? "empty value in a primary key (NOT NULL)" : "empty value in _id", 'fail', null)
-                            continue
-                        }
-                        const misfit = mysql ? typeProblem(value, column.kind, column.mysqlType) : engine === 'mongo' ? documentProblem(value, column.kind) : null
-                        if (misfit) report(table, target, column, misfit, 'fail', isMemoKind(column.kind) || column.kind === 'binary' ? `${value.length / 2} ${plural(value.length / 2, "byte", "bytes")}` : value)
-                        const seen = keyed ? keySeen.get(column) : undefined
-                        if (seen) {
-                            if (seen.has(value)) report(table, target, column, engine === 'mongo' && column.key === 'PRI' ? "duplicate _id value"
-                                : `duplicate value in a ${column.key === 'PRI' ? "primary" : "unique"} key`, 'fail', value)
-                            else seen.add(value)
-                        }
-                    }
-                }
-            }
-        }
-
-        return [...issues.values()].sort((a, b) =>
-            Number(a.effect === 'null') - Number(b.effect === 'null') || b.count - a.count)
-    }
-
-    // ------------------------------------------------------------ SQL
-
-    private *generateSql(plan: InternalPlan): Generator<SqlChunk> {
-        const { options } = plan
-        const tables = plan.tables.filter(t => !t.excluded)
-
-        yield { sql: `-- MySQL dump generated by Data Migrator\n` +
-            `-- ${new Date().toISOString()}\n` +
-            `-- Mode: ${MODE_DESCRIPTION[options.writeMode]}${options.writeMode === 'sync' && options.syncDeletes ? ", rows no longer present in the source are deleted" : ''}\n` +
-            `-- Tables: ${tables.map(t => `${t.table} (${t.fileName}, rows: ${t.rowCount})`).join(', ')}\n\n` }
-        for (const w of plan.warnings) yield { sql: `-- WARNING: ${w}\n` }
-        for (const q of plan.quality) {
-            yield { sql: `-- ${q.effect === 'fail' ? "DATA ERROR" : "DATA LOSS"}: ${q.table}.${q.column}: ${q.problem} (values: ${q.count})\n` }
-        }
-        // Values are escaped with backslashes, which NO_BACKSLASH_ESCAPES would turn into literal text.
-        yield { sql: '\nSET NAMES utf8mb4;\n' +
-            'SET @DBF_OLD_SQL_MODE = @@SESSION.sql_mode;\n' +
-            "SET SESSION sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_BACKSLASH_ESCAPES', '');\n" +
-            'SET FOREIGN_KEY_CHECKS = 0;\n\n' }
-
-        if (options.database) {
-            const db = quoteIdent(options.database)
-            yield { sql: `CREATE DATABASE IF NOT EXISTS ${db} CHARACTER SET utf8mb4 COLLATE ${TABLE_COLLATION};\nUSE ${db};\n\n` }
-        }
-
-        const sync = options.writeMode === 'sync'
-        for (const table of tables) {
-            yield { sql: this.createTableSql(table, options), table: table.table }
-            if (options.includeData) {
-                const upsert = sync && primaryKeyOf(table) !== undefined
-                // Without a key there is no telling which row is which: empty the table and load it again.
-                if (sync && !upsert) yield { sql: `DELETE FROM ${quoteIdent(table.table)};\n`, table: table.table, sync: 'reload' }
-                yield* this.insertSql(table, options, 'live')
-                if (upsert && options.syncDeletes) yield* this.syncDeleteSql(table, options)
-            }
-            if (table.deletedTable) {
-                yield { sql: this.createDeletedTableSql(table, options), table: table.deletedTable }
-                // The deleted copy is a snapshot of what is marked deleted now; record numbers move after PACK.
-                if (sync) yield { sql: `DELETE FROM ${quoteIdent(table.deletedTable)};\n`, table: table.deletedTable, sync: 'reload' }
-                yield* this.insertSql(table, options, 'deleted')
-            }
-        }
-
-        if (plan.foreignKeys.length > 0) yield { sql: "-- Foreign keys\n", foreignKeys: true }
-        for (const { name, child, parent } of plan.accepted) {
-            const alter = `ALTER TABLE ${quoteIdent(child.table.table)} ADD CONSTRAINT ${quoteIdent(name)} ` +
-                `FOREIGN KEY (${quoteIdent(child.column.column)}) ` +
-                `REFERENCES ${quoteIdent(parent.table.table)} (${quoteIdent(parent.column.column)})`
+  /**
+   * The same plan for a document database: names, exclusions, keys and checked links as for MySQL,
+   * without MySQL's types, row size limits and index rules. Values come out as canonical text.
+   */
+  documentSource(
+    session: DbfSession,
+    relationships: readonly DbfRelationship[],
+    options: MysqlExportOptions,
+    target: 'mongo' | 'sql' = 'mongo',
+  ): DocumentSource {
+    const plan = this.buildPlan(session, relationships, options, target);
+    const tableOf = new Map<TableSpec, DocumentTable>();
+    const tables = plan.tables.map((t): DocumentTable => {
+      const columns = active(t);
+      const doc: DocumentTable = {
+        fileName: t.fileName,
+        name: t.table,
+        deletedName: t.deletedTable,
+        rowCount: t.rowCount,
+        deletedCount: t.deletedCount,
+        encoding: t.encoding,
+        memoFile: t.memoFile,
+        indexFile: t.result.index?.fileName ?? null,
+        excluded: t.excluded,
+        skippedFields: t.skippedFields,
+        primaryTag: t.primaryTag,
+        tags: t.result.index?.tags ?? [],
+        dbfFieldNames: t.result.header.fields.map((f) => f.name),
+        columns: t.columns.map((c) => ({
+          field: c.field,
+          name: c.column,
+          kind: c.kind,
+          key: c.key,
+          excluded: c.excluded,
+          note: c.note,
+          nullable: c.nullable,
+        })),
+        records: function* (set: RecordSet) {
+          for (const record of iterateRecords(t.source, t.result.header, set)) {
             yield {
-                sql: options.writeMode === 'replace' ? `${alter};\n` : unlessConstraintExists(child.table.table, name, alter),
-                foreignKeys: true,
-            }
-        }
-        for (const fk of plan.foreignKeys) {
-            if (fk.status === 'skip')
-                yield { sql: `-- skipped: ${fk.childTable}.${fk.childColumn} -> ${fk.parentTable}.${fk.parentColumn}: ${fk.reason}\n` }
-        }
+              recno: recordNumberOf(t.source, t.result.header, record),
+              values: columns.map((c) =>
+                set === 'deleted'
+                  ? decodeValue(c, record, t, options.emptyStringsAsNull)
+                  : exportValue(c, record, t, options.emptyStringsAsNull),
+              ),
+            };
+          }
+        },
+      };
+      tableOf.set(t, doc);
+      return doc;
+    });
+    return {
+      tables,
+      links: plan.accepted.map((a) => ({
+        child: {
+          table: tableOf.get(a.child.table)!,
+          column: a.child.column.column,
+        },
+        parent: {
+          table: tableOf.get(a.parent.table)!,
+          column: a.parent.column.column,
+        },
+      })),
+      foreignKeys: plan.foreignKeys,
+      quality: plan.quality,
+      warnings: plan.warnings,
+    };
+  }
 
-        yield { sql: '\nSET FOREIGN_KEY_CHECKS = 1;\nSET SESSION sql_mode = @DBF_OLD_SQL_MODE;\n' }
-    }
+  private buildPlan(
+    session: DbfSession,
+    relationships: readonly DbfRelationship[],
+    options: MysqlExportOptions,
+    target: PlanTarget = 'mysql',
+  ): InternalPlan {
+    const { overrides } = options;
+    const warnings: string[] = [];
+    const tables: TableSpec[] = [];
 
-    private createTableSql(table: TableSpec, options: MysqlExportOptions): string {
-        const columns = active(table)
-        const lines = columns.map(c =>
-            `  ${quoteIdent(c.column)} ${c.mysqlType}` +
-            (c.collation ? ` CHARACTER SET utf8mb4 COLLATE ${c.collation}` : '') +
-            (c.nullable ? ' NULL' : ' NOT NULL') +
-            ` COMMENT ${quoteString(`source ${describeField(c.field)}`)}`,
+    // Names the user typed are reserved first, so generated names step around them.
+    const takenTables = new Set<string>();
+    const reserve = (
+      name: string | undefined,
+      taken: Set<string>,
+      what: string,
+    ): string | null => {
+      if (!name) return null;
+      if (taken.has(name)) {
+        warnings.push(
+          `${what}: name "${name}" was specified twice; a suffix was added`,
+        );
+        return null;
+      }
+      taken.add(name);
+      return name;
+    };
+    const userTableNames = new Map<string, string | null>();
+    for (const fileName of session.files.keys())
+      userTableNames.set(
+        fileName,
+        reserve(overrides[fileName]?.name, takenTables, fileName),
+      );
+
+    for (const [fileName, result] of session.files) {
+      const source = session.sources.get(fileName);
+      if (!source)
+        throw new NotFoundException(`File contents not found: ${fileName}`);
+
+      const tableOverride = overrides[fileName] ?? {};
+      const columnOverrides = tableOverride.columns ?? {};
+      const memo = source.memo
+        ? openMemo(source.memo.buffer, source.memo.format)
+        : null;
+      const encoding = result.encoding;
+      const skippedFields: string[] = [];
+
+      const takenColumns = new Set<string>();
+      const userColumnNames = new Map<string, string | null>();
+      for (const field of result.header.fields)
+        userColumnNames.set(
+          field.name,
+          reserve(
+            columnOverrides[field.name]?.name,
+            takenColumns,
+            `${fileName}.${field.name}`,
+          ),
+        );
+
+      const columns: ColumnSpec[] = [];
+      for (const field of result.header.fields) {
+        if ((field.type as string) === NULL_FLAGS_FIELD_TYPE) continue;
+        const mapping = mapField(field, result.header.typeByte);
+        if (!mapping) {
+          skippedFields.push(describeField(field));
+          continue;
+        }
+        const columnOverride = columnOverrides[field.name] ?? {};
+        columns.push({
+          field,
+          kind: mapping.kind,
+          family: mapping.family,
+          column:
+            userColumnNames.get(field.name) ??
+            uniqueName(toIdentifier(field.name, 'column'), takenColumns),
+          note: isMemoKind(mapping.kind)
+            ? source.memo
+              ? `from ${source.memo.fileName}`
+              : 'memo file (.fpt/.dbt) was not uploaded; exported as NULL'
+            : undefined,
+          excluded: columnOverride.exclude === true,
+          // A MySQL type the user typed means nothing to a document database.
+          typeOverridden:
+            target === 'mysql' && columnOverride.type !== undefined,
+          mysqlType:
+            (target === 'mysql' ? columnOverride.type : undefined) ??
+            mapping.mysqlType,
+          collation: null,
+          nullable: true,
+          key: null,
+          orphans: null,
+        });
+      }
+
+      const included = columns.filter((c) => !c.excluded);
+      const excluded = tableOverride.exclude === true || included.length === 0;
+      if (included.length === 0 && tableOverride.exclude !== true)
+        warnings.push(`${fileName}: no fields remain to export; table skipped`);
+
+      // A primary key the user picked; null means "no primary key at all".
+      const pk = tableOverride.primaryKey;
+      if (typeof pk === 'string') {
+        const column = included.find((c) => c.field.name === pk);
+        if (column) {
+          column.key = 'PRI';
+          column.nullable = false;
+          if (isCharacterType(column.mysqlType))
+            column.collation = KEY_COLLATION;
+        } else {
+          warnings.push(
+            `${fileName}: primary key field ${pk} is excluded from export; the table will have no primary key`,
+          );
+        }
+      }
+
+      if (!excluded) {
+        if (skippedFields.length > 0)
+          warnings.push(
+            `${fileName}: fields without a MySQL equivalent were skipped: ${skippedFields.join(', ')}`,
+          );
+        if (!memo && included.some((c) => isMemoKind(c.kind)))
+          warnings.push(
+            `${fileName}: memo fields are exported as NULL. Upload ${fileName.replace(/\.dbf$/i, '')}.FPT (or .DBT) alongside the table to migrate them`,
+          );
+        if (
+          result.encodingSource === 'detected' &&
+          included.some((c) => c.kind === 'text')
         )
-        const primary = columns.filter(c => c.key === 'PRI')
-        if (primary.length > 0) lines.push(`  PRIMARY KEY (${primary.map(c => quoteIdent(c.column)).join(', ')})`)
-        for (const c of columns) {
-            if (c.key === 'UNI') lines.push(`  UNIQUE KEY ${quoteIdent(`uq_${c.column}`.slice(0, MAX_IDENTIFIER))} (${quoteIdent(c.column)})`)
-        }
-        for (const ix of table.indexes) {
-            if (ix.status === 'create')
-                lines.push(`  KEY ${quoteIdent(ix.name)} (${ix.parts.map(indexColumnSql).join(', ')}) COMMENT ${quoteString(`CDX tag ${ix.tag.name}: ${ix.tag.expression}`.slice(0, 1024))}`)
-        }
+          warnings.push(
+            `${fileName}: ${describeMark(result.header.codePage)}; encoding detected from text: ${encoding}. If the preview text is incorrect, select an encoding on the table tab.`,
+          );
+        if (
+          options.indexes &&
+          result.header.tableFlags.hasStructuralCdx &&
+          !result.index
+        )
+          warnings.push(
+            `${fileName}: the table has a .CDX index file. Upload ${fileName.replace(/\.dbf$/i, '')}.CDX alongside the table to migrate its indexes`,
+          );
+        if (options.indexes && result.index?.error)
+          warnings.push(
+            `${result.index.fileName}: could not read (${result.index.error}); indexes from this file are not used`,
+          );
+      }
 
-        return this.createSql(table.table, lines, `Imported from ${table.fileName}`, options)
+      tables.push({
+        fileName,
+        table:
+          userTableNames.get(fileName) ??
+          uniqueName(
+            toIdentifier(fileName.replace(/\.dbf$/i, ''), 'table'),
+            takenTables,
+          ),
+        result,
+        source: source.dbf,
+        encoding,
+        decoder: createDecoder(encoding),
+        memo,
+        memoFile: source.memo?.fileName ?? null,
+        rowCount: countRecords(source.dbf, result.header, 'live'),
+        deletedCount: countRecords(source.dbf, result.header, 'deleted'),
+        deletedTable: null,
+        columns,
+        skippedFields,
+        excluded,
+        pkLocked: pk !== undefined,
+        primaryTag: null,
+        indexes: [],
+      });
     }
 
-    /** Same columns as the table, all nullable and without keys, plus the record number. */
-    private createDeletedTableSql(table: TableSpec, options: MysqlExportOptions): string {
-        const lines = [
-            `  ${quoteIdent(RECNO_COLUMN)} INT UNSIGNED NOT NULL COMMENT 'source record number'`,
-            ...active(table).map(c =>
-                `  ${quoteIdent(c.column)} ${c.mysqlType} NULL COMMENT ${quoteString(`source ${describeField(c.field)}`)}`),
-            `  PRIMARY KEY (${quoteIdent(RECNO_COLUMN)})`,
-        ]
-        return this.createSql(table.deletedTable!, lines, `Records marked as deleted in ${table.fileName}`, options)
+    // Named after every real table, so a generated "clients_deleted" never takes a user's name.
+    if (options.keepDeleted && options.includeData) {
+      for (const t of tables) {
+        if (!t.excluded && t.deletedCount > 0)
+          t.deletedTable = uniqueName(
+            toIdentifier(`${t.table}_deleted`, 'deleted'),
+            takenTables,
+          );
+      }
     }
 
-    private createSql(table: string, lines: readonly string[], comment: string, options: MysqlExportOptions): string {
-        const name = quoteIdent(table)
-        const replace = options.writeMode === 'replace'
-        return (replace ? `DROP TABLE IF EXISTS ${name};\n` : '') +
-            `CREATE TABLE ${replace ? '' : 'IF NOT EXISTS '}${name} (\n${lines.join(',\n')}\n) ` +
-            `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=${TABLE_COLLATION} ` +
-            `COMMENT=${quoteString(comment)};\n\n`
-    }
+    // A FoxPro candidate key is the developer's own primary key; it goes first so links do not pick another.
+    if (options.indexes)
+      this.primaryKeysFromCandidates(tables, options, warnings);
 
-    /**
-     * INSERT batches for the live records (an upsert on the primary key in sync mode) or for the
-     * records marked deleted (into <table>_deleted, with their record numbers).
-     */
-    private *insertSql(table: TableSpec, options: MysqlExportOptions, set: RecordSet): Generator<SqlChunk> {
-        const columns = active(table)
-        const deleted = set === 'deleted'
-        const target = deleted ? table.deletedTable! : table.table
-        const names = [...(deleted ? [RECNO_COLUMN] : []), ...columns.map(c => c.column)].map(quoteIdent)
-        const pk = deleted ? undefined : primaryKeyOf(table)
-        const upsert = options.writeMode === 'sync' && pk !== undefined
+    const { foreignKeys, accepted } = options.foreignKeys
+      ? this.planForeignKeys(tables, relationships, options)
+      : { foreignKeys: [], accepted: [] };
 
-        const head = `INSERT INTO ${quoteIdent(target)} (${names.join(', ')}) VALUES\n`
-        let tail = ''
-        if (upsert) {
-            const updates = columns.filter(c => c !== pk).map(c => `${quoteIdent(c.column)} = VALUES(${quoteIdent(c.column)})`)
-            // A table that is nothing but its key still needs a no-op so the duplicate is not an error.
-            tail = `\nON DUPLICATE KEY UPDATE ${updates.length > 0 ? updates.join(', ') : `${quoteIdent(pk.column)} = ${quoteIdent(pk.column)}`}`
-        }
-
-        let batch: string[] = []
-        let batchChars = 0
-        const flush = (): SqlChunk => {
-            const chunk: SqlChunk = { sql: `${head}${batch.join(',\n')}${tail};\n`, table: target, rows: batch.length, sync: upsert ? 'upsert' : undefined }
-            batch = []
-            batchChars = 0
-            return chunk
-        }
-
-        for (const record of iterateRecords(table.source, table.result.header, set)) {
-            // The deleted copy has no foreign keys, so it keeps every value as the DBF has it.
-            const values = columns.map(c =>
-                sqlLiteral(c.kind, (deleted ? decodeValue : exportValue)(c, record, table, options.emptyStringsAsNull)))
-            if (deleted) values.unshift(String(recordNumberOf(table.source, table.result.header, record)))
-            const row = `(${values.join(', ')})`
-            batch.push(row)
-            batchChars += row.length
-            if (batch.length >= INSERT_BATCH_ROWS || batchChars >= INSERT_BATCH_CHARS) yield flush()
-        }
-        if (batch.length > 0) yield flush()
-        yield { sql: '\n' }
-    }
-
-    /**
-     * Sync: deletes the MySQL rows whose primary key is not among the DBF's live records any more
-     * (deleted or packed away in the old system). The live keys go to a temporary table first.
-     */
-    private *syncDeleteSql(table: TableSpec, options: MysqlExportOptions): Generator<SqlChunk> {
-        const pk = primaryKeyOf(table)!
-        const keys = quoteIdent(SYNC_KEYS_TABLE)
-        yield {
-            sql: `DROP TEMPORARY TABLE IF EXISTS ${keys};\n` +
-                `CREATE TEMPORARY TABLE ${keys} (\`k\` ${pk.mysqlType}` +
-                (pk.collation ? ` CHARACTER SET utf8mb4 COLLATE ${pk.collation}` : '') +
-                ' NOT NULL, PRIMARY KEY (`k`)) ENGINE=InnoDB;\n',
-            table: table.table,
-        }
-        let batch: string[] = []
-        for (const record of iterateRecords(table.source, table.result.header)) {
-            batch.push(`(${sqlLiteral(pk.kind, decodeValue(pk, record, table, options.emptyStringsAsNull))})`)
-            if (batch.length >= INSERT_BATCH_ROWS * 4) {
-                yield { sql: `INSERT INTO ${keys} (\`k\`) VALUES ${batch.join(', ')};\n`, table: table.table }
-                batch = []
+    // Row size and MySQL index rules mean nothing to a document database; it plans its own indexes.
+    if (target === 'mysql') {
+      // Types are final now (overrides, keys, foreign key alignment); make sure each row fits InnoDB.
+      // Columns in a foreign key or a .CDX index must stay indexable, so they never become TEXT.
+      const indexed = new Set<ColumnSpec>(
+        accepted.flatMap((a) => [a.child.column, a.parent.column]),
+      );
+      for (const t of tables) {
+        if (!options.indexes) continue;
+        const fieldNames = t.result.header.fields.map((f) => f.name);
+        for (const tag of t.result.index?.tags ?? []) {
+          try {
+            for (const part of indexParts(tag.expression, fieldNames)) {
+              const column = t.columns.find((c) => c.field.name === part.field);
+              if (column) indexed.add(column);
             }
+          } catch {
+            /* an expression that cannot be translated creates no index */
+          }
         }
-        if (batch.length > 0) yield { sql: `INSERT INTO ${keys} (\`k\`) VALUES ${batch.join(', ')};\n`, table: table.table }
-        const t = quoteIdent(table.table)
-        yield {
-            sql: `DELETE ${t} FROM ${t} LEFT JOIN ${keys} AS \`s\` ON \`s\`.\`k\` = ${t}.${quoteIdent(pk.column)} WHERE \`s\`.\`k\` IS NULL;\n`,
-            table: table.table,
-            sync: 'delete',
-        }
-        yield { sql: `DROP TEMPORARY TABLE ${keys};\n\n`, table: table.table }
+      }
+      for (const t of tables) if (!t.excluded) fitRowSize(t, warnings, indexed);
+
+      if (options.indexes) {
+        for (const t of tables)
+          if (!t.excluded) t.indexes = this.planIndexes(t, options);
+      }
+
+      if (options.writeMode === 'sync') {
+        const keyless = tables
+          .filter((t) => !t.excluded && !primaryKeyOf(t))
+          .map((t) => t.table);
+        if (keyless.length > 0)
+          warnings.push(
+            `Sync: no primary key in ${keyless.join(', ')}. These tables are cleared and reloaded on every sync. Select a primary key in the plan to update rows individually.`,
+          );
+      }
     }
+
+    const quality = this.assessQuality(tables, options, target);
+    return { options, tables, foreignKeys, accepted, quality, warnings };
+  }
+
+  /**
+   * Turns detected relationships into FOREIGN KEY constraints, checked against the data:
+   * the referenced side must hold unique values and every child value must exist in it.
+   */
+  private planForeignKeys(
+    tables: readonly TableSpec[],
+    relationships: readonly DbfRelationship[],
+    options: MysqlExportOptions,
+  ): { foreignKeys: MysqlForeignKeyPlan[]; accepted: AcceptedForeignKey[] } {
+    const byFile = new Map(tables.map((t) => [t.fileName as string, t]));
+    const resolve = (file: string, field: string) => {
+      const table = byFile.get(file);
+      const column = table?.columns.find((c) => c.field.name === field);
+      return table && column ? { table, column } : null;
+    };
+    const exclusionOf = (file: string, field: string): string | null => {
+      const end = resolve(file, field);
+      if (end?.table.excluded)
+        return `${end.table.table} is excluded from export`;
+      if (end?.column.excluded)
+        return `${end.table.table}.${end.column.column} is excluded from export`;
+      return null;
+    };
+
+    type Endpoint = NonNullable<ReturnType<typeof resolve>>;
+    const candidates: {
+      rel: DbfRelationship;
+      source: Endpoint;
+      target: Endpoint;
+    }[] = [];
+    const foreignKeys: MysqlForeignKeyPlan[] = [];
+    // Same naming as created keys (MySQL table.column), falling back to DBF names when unresolved.
+    const displayName = (file: string, field: string) => {
+      const end = resolve(file, field);
+      return {
+        table: end?.table.table ?? byFile.get(file)?.table ?? file,
+        column: end?.column.column ?? field,
+      };
+    };
+    const skipRaw = (rel: DbfRelationship, reason: string) => {
+      const child = displayName(rel.sourceFile, rel.sourceField);
+      const parent = displayName(rel.targetFile, rel.targetField);
+      foreignKeys.push({
+        name: '',
+        childTable: child.table,
+        childColumn: child.column,
+        parentTable: parent.table,
+        parentColumn: parent.column,
+        source: rel.kind,
+        status: 'skip',
+        reason,
+      });
+    };
+
+    const seenPairs = new Set<string>();
+    const ordered = [...relationships].sort(
+      (a, b) => RELATIONSHIP_PRIORITY[a.kind] - RELATIONSHIP_PRIORITY[b.kind],
+    );
+    for (const rel of ordered) {
+      const ends = [
+        `${rel.sourceFile}.${rel.sourceField}`,
+        `${rel.targetFile}.${rel.targetField}`,
+      ].sort();
+      const pairKey = ends.join('|');
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+
+      const source = resolve(rel.sourceFile, rel.sourceField);
+      const target = resolve(rel.targetFile, rel.targetField);
+      if (!source || !target) {
+        const missing = !source
+          ? `${rel.sourceFile}.${rel.sourceField}`
+          : `${rel.targetFile}.${rel.targetField}`;
+        skipRaw(rel, `field ${missing} is missing or has no MySQL equivalent`);
+        continue;
+      }
+      const exclusion =
+        exclusionOf(rel.sourceFile, rel.sourceField) ??
+        exclusionOf(rel.targetFile, rel.targetField);
+      if (exclusion) {
+        skipRaw(rel, exclusion);
+        continue;
+      }
+      if (source.column === target.column) {
+        skipRaw(rel, 'a column cannot reference itself');
+        continue;
+      }
+      if (
+        !isKeyableType(source.column.mysqlType) ||
+        !isKeyableType(target.column.mysqlType)
+      ) {
+        skipRaw(
+          rel,
+          'TEXT/BLOB columns cannot be used in foreign keys; use VARCHAR(n)',
+        );
+        continue;
+      }
+      if (
+        source.column.family === null ||
+        source.column.family !== target.column.family ||
+        (source.column.family === 'date' &&
+          source.column.mysqlType !== target.column.mysqlType)
+      ) {
+        skipRaw(
+          rel,
+          `incompatible types: ${describeField(source.column.field)} and ${describeField(target.column.field)}`,
+        );
+        continue;
+      }
+      candidates.push({ rel, source, target });
+    }
+
+    // One pass per table collects the values of every column that takes part in a link.
+    const needed = new Map<TableSpec, Set<ColumnSpec>>();
+    for (const { source, target } of candidates) {
+      for (const end of [source, target]) {
+        const set = needed.get(end.table) ?? new Set<ColumnSpec>();
+        set.add(end.column);
+        needed.set(end.table, set);
+      }
+    }
+    const stats = new Map<ColumnSpec, ColumnStats>();
+    for (const [table, columns] of needed) {
+      for (const [column, s] of this.collectStats(table, [...columns], options))
+        stats.set(column, s);
+    }
+
+    let accepted: AcceptedForeignKey[] = [];
+    const takenNames = new Set<string>();
+    const seenLinks = new Set<string>();
+
+    const linkBase = (
+      rel: DbfRelationship,
+      parent: Endpoint,
+      child: Endpoint,
+    ) => ({
+      childTable: child.table.table,
+      childColumn: child.column.column,
+      parentTable: parent.table.table,
+      parentColumn: parent.column.column,
+      source: rel.kind,
+    });
+
+    // A direction works when the parent column is unique; child values it does not hold are orphans.
+    const evaluate = (parent: Endpoint, child: Endpoint) => {
+      const parentStats = stats.get(parent.column)!;
+      const childStats = stats.get(child.column)!;
+      if (!parentStats.unique || parentStats.values.size === 0)
+        return { parent, child, parentStats, orphans: null };
+      const values: string[] = [];
+      let rows = 0;
+      let childRows = 0;
+      for (const [v, n] of childStats.values) {
+        childRows += n;
+        if (!parentStats.values.has(v)) {
+          values.push(v);
+          rows += n;
+        }
+      }
+      return {
+        parent,
+        child,
+        parentStats,
+        orphans: { values, rows, childRows },
+      };
+    };
+    type Direction = ReturnType<typeof evaluate>;
+
+    // Orphans become NULL: allowed in a plain nullable column that nothing else refers to,
+    // and for a guessed link only while they are a minority of the child's rows.
+    const orphansBlocker = (
+      rel: DbfRelationship,
+      d: Direction,
+    ): string | null => {
+      const o = d.orphans!;
+      if (!options.orphansAsNull)
+        return 'enable "Unmatched values → NULL" to create the key';
+      if (d.child.column.key !== null || !d.child.column.nullable)
+        return `${d.child.table.table}.${d.child.column.column} is a table key and cannot contain NULL`;
+      if (accepted.some((a) => a.parent.column === d.child.column))
+        return `column ${d.child.table.table}.${d.child.column.column} is already referenced by another table`;
+      if (rel.kind !== 'manual' && o.rows > o.childRows * MAX_ORPHAN_SHARE)
+        return `unmatched values affect ${Math.round((o.rows / o.childRows) * 100)}% of rows; the tables may be unrelated. If they are related, add a relationship manually to replace these values with NULL`;
+      return null;
+    };
+
+    for (const { rel, source, target } of candidates) {
+      const directions = [evaluate(target, source), evaluate(source, target)];
+      // Explicit links keep their declared direction first; for name matches the
+      // null-free, fuller column is the more likely primary key.
+      if (rel.kind === 'auto_name') {
+        directions.sort(
+          (a, b) =>
+            Number(a.parentStats.hasNull) - Number(b.parentStats.hasNull) ||
+            b.parentStats.values.size - a.parentStats.values.size,
+        );
+      }
+
+      const usable = directions.filter((d) => d.orphans !== null);
+      const byOrphanRows = [...usable].sort(
+        (a, b) => a.orphans.rows - b.orphans.rows,
+      );
+      const chosen =
+        usable.find((d) => d.orphans.values.length === 0) ??
+        byOrphanRows.find((d) => orphansBlocker(rel, d) === null);
+      if (!chosen) {
+        const closest = byOrphanRows[0];
+        if (!closest) {
+          foreignKeys.push({
+            ...linkBase(rel, directions[0].parent, directions[0].child),
+            name: '',
+            status: 'skip',
+            reason:
+              'neither column contains unique values, so neither can be referenced',
+          });
+        } else {
+          const base = linkBase(rel, closest.parent, closest.child);
+          const o = closest.orphans;
+          foreignKeys.push({
+            ...base,
+            name: '',
+            status: 'skip',
+            reason: `values in ${base.childTable}.${base.childColumn} with no match in ${base.parentTable}.${base.parentColumn}: ${o.values.length} across ${o.rows} ${plural(o.rows, 'row', 'rows')} (e.g. '${o.values[0]}') — ${orphansBlocker(rel, closest)}`,
+          });
+        }
+        continue;
+      }
+
+      const { parent, child, parentStats } = chosen;
+      const base = linkBase(rel, parent, child);
+      const linkKey = `${base.childTable}.${base.childColumn}->${base.parentTable}.${base.parentColumn}`;
+      if (seenLinks.has(linkKey)) continue;
+      // A guessed link never gives a column a second parent; user links (sorted first) win.
+      const existing =
+        rel.kind !== 'manual'
+          ? accepted.find((a) => a.child.column === child.column)
+          : undefined;
+      if (existing) {
+        foreignKeys.push({
+          ...base,
+          name: '',
+          status: 'skip',
+          reason: `${base.childTable}.${base.childColumn} already references ${existing.parent.table.table}.${existing.parent.column.column}`,
+        });
+        continue;
+      }
+      // A column whose values were set to NULL cannot be referred to: those rows would lose their parent.
+      if (parent.column.orphans) {
+        foreignKeys.push({
+          ...base,
+          name: '',
+          status: 'skip',
+          reason: `in ${base.parentTable}.${base.parentColumn} unmatched values are replaced with NULL (relationship to ${parent.column.orphans.parents.join(' / ')}), so this column cannot be referenced`,
+        });
+        continue;
+      }
+      seenLinks.add(linkKey);
+
+      if (parent.column.key === null) {
+        const hasPrimary =
+          parent.table.pkLocked ||
+          parent.table.columns.some((c) => c.key === 'PRI');
+        if (!hasPrimary && !parentStats.hasNull) {
+          parent.column.key = 'PRI';
+          parent.column.nullable = false;
+        } else {
+          parent.column.key = 'UNI';
+        }
+      }
+      if (parent.column.family === 'text') {
+        if (isCharacterType(parent.column.mysqlType))
+          parent.column.collation = KEY_COLLATION;
+        if (isCharacterType(child.column.mysqlType))
+          child.column.collation = KEY_COLLATION;
+      }
+
+      const name = uniqueName(
+        toIdentifier(`fk_${base.childTable}_${base.childColumn}`, 'fk'),
+        takenNames,
+      );
+      accepted.push({ name, child, parent });
+      const missing = chosen.orphans.values;
+      if (missing.length > 0) {
+        const where = `${base.parentTable}.${base.parentColumn}`;
+        if (child.column.orphans) {
+          for (const v of missing) child.column.orphans.values.add(v);
+          child.column.orphans.parents.push(where);
+        } else {
+          child.column.orphans = { values: new Set(missing), parents: [where] };
+        }
+      }
+      foreignKeys.push({
+        ...base,
+        name,
+        status: 'create',
+        orphans:
+          missing.length > 0
+            ? {
+                values: missing.length,
+                rows: chosen.orphans.rows,
+                examples: missing.slice(0, ORPHAN_EXAMPLES),
+              }
+            : undefined,
+      });
+    }
+
+    // InnoDB wants identical integer types on both ends; repeat so chains settle.
+    // A type the user set by hand is never changed behind their back.
+    for (let changed = true, guard = 0; changed && guard < 10; guard++) {
+      changed = false;
+      for (const { child, parent } of accepted) {
+        if (
+          child.column.family === 'numeric' &&
+          !child.column.typeOverridden &&
+          child.column.mysqlType !== parent.column.mysqlType
+        ) {
+          child.column.mysqlType = parent.column.mysqlType;
+          changed = true;
+        }
+      }
+    }
+    // …and where a hand-set type still disagrees, the constraint cannot be created.
+    const conflicting = new Set(
+      accepted.filter(
+        (a) =>
+          a.child.column.family === 'numeric' &&
+          a.child.column.mysqlType !== a.parent.column.mysqlType,
+      ),
+    );
+    if (conflicting.size > 0) {
+      for (const a of conflicting) {
+        const i = foreignKeys.findIndex((fk) => fk.name === a.name);
+        foreignKeys[i] = {
+          ...foreignKeys[i],
+          name: '',
+          status: 'skip',
+          reason: `types differ: ${a.child.column.column} ${a.child.column.mysqlType} and ${a.parent.column.column} ${a.parent.column.mysqlType}; assign the same type to both`,
+        };
+      }
+      accepted = accepted.filter((a) => !conflicting.has(a));
+    }
+
+    // Keys that will exist first; skipped ones after, each group in detection order.
+    foreignKeys.sort(
+      (a, b) => Number(a.status === 'skip') - Number(b.status === 'skip'),
+    );
+    return { foreignKeys, accepted };
+  }
+
+  /**
+   * Tables without a chosen primary key take their .CDX candidate tag on a single field as one,
+   * as long as the live records really are unique and filled in.
+   */
+  private primaryKeysFromCandidates(
+    tables: readonly TableSpec[],
+    options: MysqlExportOptions,
+    warnings: string[],
+  ): void {
+    for (const table of tables) {
+      if (table.excluded || table.pkLocked || primaryKeyOf(table)) continue;
+      const fieldNames = table.result.header.fields.map((f) => f.name);
+      for (const tag of table.result.index?.tags ?? []) {
+        if (!tag.candidate || tag.filter) continue;
+        let parts: ReturnType<typeof indexParts>;
+        try {
+          parts = indexParts(tag.expression, fieldNames);
+        } catch {
+          continue;
+        }
+        const part = parts.length === 1 && !parts[0].prefix ? parts[0] : null;
+        const column =
+          part && table.columns.find((c) => c.field.name === part.field);
+        if (!column || column.excluded || !isKeyableType(column.mysqlType))
+          continue;
+
+        const stats = this.collectStats(table, [column], options).get(column)!;
+        if (stats.unique && !stats.hasNull) {
+          column.key = 'PRI';
+          column.nullable = false;
+          if (isCharacterType(column.mysqlType))
+            column.collation = KEY_COLLATION;
+          table.primaryTag = tag.name;
+        } else {
+          warnings.push(
+            `${table.fileName}: candidate key ${tag.name} (${tag.expression}) contains ${stats.hasNull ? 'empty' : 'duplicate'} values among active records; not used as the primary key`,
+          );
+        }
+        break;
+      }
+    }
+  }
+
+  /** The table's .CDX tags as MySQL indexes, or the reason each one cannot be. */
+  private planIndexes(
+    table: TableSpec,
+    options: MysqlExportOptions,
+  ): IndexSpec[] {
+    const fieldNames = table.result.header.fields.map((f) => f.name);
+    const excluded = new Set(
+      options.overrides[table.fileName]?.excludedIndexes ?? [],
+    );
+    const pk = primaryKeyOf(table);
+    const unique = active(table).filter((c) => c.key === 'UNI');
+    // Column lists that already have an index in MySQL, with what that index is.
+    const covered = new Map<string, string>();
+    if (pk) covered.set(quoteIdent(pk.column), 'primary key');
+    for (const c of unique)
+      covered.set(quoteIdent(c.column), `unique key on ${c.column}`);
+    const taken = new Set(
+      unique.map((c) => `uq_${c.column}`.slice(0, MAX_IDENTIFIER)),
+    );
+
+    const out: IndexSpec[] = [];
+    let created = 0;
+    for (const tag of table.result.index?.tags ?? []) {
+      if (tag.name === table.primaryTag) {
+        out.push({
+          tag,
+          name: '',
+          parts: pk ? [{ column: pk }] : [],
+          status: 'primary',
+          note: 'FoxPro candidate key; used as the primary key',
+        });
+        continue;
+      }
+      const skip = (note: string, parts: IndexSpec['parts'] = []) =>
+        out.push({ tag, name: '', parts, status: 'skip', note });
+
+      let parsed: ReturnType<typeof indexParts>;
+      try {
+        parsed = indexParts(tag.expression, fieldNames);
+      } catch (err) {
+        skip(
+          `expression cannot be converted for MySQL: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
+      if (parsed.length === 0) {
+        skip('expression uses no fields (only DELETED() or constants)');
+        continue;
+      }
+
+      const parts: { column: ColumnSpec; prefix?: number }[] = [];
+      let problem: string | null = null;
+      for (const p of parsed) {
+        const column = table.columns.find((c) => c.field.name === p.field);
+        if (!column) problem = `${p.field} has no corresponding MySQL column`;
+        else if (column.excluded)
+          problem = `${column.column} is excluded from export`;
+        else if (!isKeyableType(column.mysqlType))
+          problem = `${column.column} has type ${column.mysqlType}, which cannot be indexed; use VARCHAR(n)`;
+        if (problem || !column) break;
+        const length = sizedLength(column.mysqlType);
+        parts.push({
+          column,
+          prefix:
+            p.prefix && length !== null && p.prefix < length
+              ? p.prefix
+              : undefined,
+        });
+      }
+      if (problem) {
+        skip(problem, parts);
+        continue;
+      }
+      if (excluded.has(tag.name)) {
+        out.push({ tag, name: '', parts, status: 'excluded' });
+        continue;
+      }
+      const bytes = parts.reduce(
+        (n, p) => n + keyBytes(p.column.mysqlType, p.prefix),
+        0,
+      );
+      if (parts.length > MAX_KEY_PARTS) {
+        skip(
+          `columns: ${parts.length}; MySQL allows at most ${MAX_KEY_PARTS} per index`,
+          parts,
+        );
+        continue;
+      }
+      if (bytes > MAX_KEY_BYTES) {
+        skip(
+          `key would use up to ${bytes} ${plural(bytes, 'byte', 'bytes')}, InnoDB allows ${MAX_KEY_BYTES}`,
+          parts,
+        );
+        continue;
+      }
+      const signature = parts.map(indexColumnSql).join(',');
+      const same = covered.get(signature);
+      if (same) {
+        skip(`same columns as ${same}`, parts);
+        continue;
+      }
+      if (created >= MAX_INDEXES) {
+        skip(`MySQL allows at most ${MAX_INDEXES} indexes per table`, parts);
+        continue;
+      }
+
+      const name = uniqueName(toIdentifier(`ix_${tag.name}`, 'ix'), taken);
+      covered.set(signature, `index ${name}`);
+      created++;
+      const notes = [
+        tag.filter &&
+          `FOR ${tag.filter} is not migrated; MySQL indexes all rows`,
+        tag.candidate &&
+          'FoxPro candidate key; exported as a regular index because the table uses another primary key',
+        tag.unique &&
+          'FoxPro UNIQUE only skips duplicate keys; exported as a regular index',
+      ].filter(Boolean);
+      out.push({
+        tag,
+        name,
+        parts,
+        status: 'create',
+        note: notes.length > 0 ? notes.join('; ') : undefined,
+      });
+    }
+    return out;
+  }
+
+  private collectStats(
+    table: TableSpec,
+    columns: readonly ColumnSpec[],
+    options: MysqlExportOptions,
+  ): Map<ColumnSpec, ColumnStats> {
+    const stats = new Map<ColumnSpec, ColumnStats>(
+      columns.map((c) => [
+        c,
+        { values: new Map<string, number>(), unique: true, hasNull: false },
+      ]),
+    );
+    for (const record of iterateRecords(table.source, table.result.header)) {
+      for (const [column, s] of stats) {
+        const value = decodeValue(
+          column,
+          record,
+          table,
+          options.emptyStringsAsNull,
+        );
+        if (value === null) {
+          s.hasNull = true;
+          continue;
+        }
+        const n = s.values.get(value) ?? 0;
+        if (n > 0) s.unique = false;
+        s.values.set(value, n + 1);
+      }
+    }
+    return stats;
+  }
+
+  /**
+   * Reads every record the way the export will and reports, per column, values that would be
+   * lost (stored as NULL) or that strict-mode MySQL would reject (stopping the import).
+   */
+  private assessQuality(
+    tables: readonly TableSpec[],
+    options: MysqlExportOptions,
+    engine: PlanTarget,
+  ): MysqlQualityIssue[] {
+    const mysql = engine === 'mysql';
+    const issues = new Map<
+      string,
+      MysqlQualityIssue & { examples: string[]; count: number }
+    >();
+    const report = (
+      table: TableSpec,
+      target: string,
+      column: ColumnSpec,
+      problem: string,
+      effect: MysqlQualityEffect,
+      example: string | null,
+    ) => {
+      const key = `${target}\u0000${column.column}\u0000${problem}`;
+      let issue = issues.get(key);
+      if (!issue) {
+        issue = {
+          fileName: table.fileName,
+          table: target,
+          dbfField: column.field.name,
+          column: column.column,
+          problem,
+          effect,
+          count: 0,
+          examples: [],
+        };
+        issues.set(key, issue);
+      }
+      issue.count++;
+      if (
+        example !== null &&
+        issue.examples.length < QUALITY_EXAMPLES &&
+        !issue.examples.includes(shorten(example))
+      )
+        issue.examples.push(shorten(example));
+    };
+
+    for (const table of tables) {
+      if (table.excluded) continue;
+      const columns = active(table);
+
+      for (const column of columns) {
+        if (mysql && column.key !== null && !isKeyableType(column.mysqlType)) {
+          issues.set(`${table.table}\u0000${column.column}\u0000keyable`, {
+            fileName: table.fileName,
+            table: table.table,
+            dbfField: column.field.name,
+            column: column.column,
+            problem: `${column.mysqlType} cannot be a ${column.key === 'PRI' ? 'primary' : 'unique'} key; use VARCHAR(n)`,
+            effect: 'fail',
+            count: table.rowCount,
+            examples: [],
+          });
+        }
+      }
+
+      const keySeen = new Map<ColumnSpec, Set<string>>(
+        columns
+          .filter((c) => c.key !== null)
+          .map((c) => [c, new Set<string>()]),
+      );
+      if (!options.includeData) continue;
+
+      // Deleted records land in a keyless copy: only the values themselves can fail there.
+      const sets: { set: RecordSet; target: string; keyed: boolean }[] = [
+        { set: 'live', target: table.table, keyed: true },
+      ];
+      if (table.deletedTable)
+        sets.push({ set: 'deleted', target: table.deletedTable, keyed: false });
+
+      for (const { set, target, keyed } of sets) {
+        for (const record of iterateRecords(
+          table.source,
+          table.result.header,
+          set,
+        )) {
+          for (const column of columns) {
+            const value = decodeValue(
+              column,
+              record,
+              table,
+              options.emptyStringsAsNull,
+            );
+            if (keyed && value !== null && column.orphans?.values.has(value)) {
+              report(
+                table,
+                target,
+                column,
+                orphanProblem(column),
+                'null',
+                value,
+              );
+              continue;
+            }
+            if (value === null) {
+              const loss = lossReason(column, record, table.memo);
+              if (loss)
+                report(
+                  table,
+                  target,
+                  column,
+                  loss,
+                  'null',
+                  rawDisplay(column, record, table.decoder),
+                );
+              if (keyed && !column.nullable)
+                report(
+                  table,
+                  target,
+                  column,
+                  engine !== 'mongo'
+                    ? 'empty value in a primary key (NOT NULL)'
+                    : 'empty value in _id',
+                  'fail',
+                  null,
+                );
+              continue;
+            }
+            const misfit = mysql
+              ? typeProblem(value, column.kind, column.mysqlType)
+              : engine === 'mongo'
+                ? documentProblem(value, column.kind)
+                : null;
+            if (misfit)
+              report(
+                table,
+                target,
+                column,
+                misfit,
+                'fail',
+                isMemoKind(column.kind) || column.kind === 'binary'
+                  ? `${value.length / 2} ${plural(value.length / 2, 'byte', 'bytes')}`
+                  : value,
+              );
+            const seen = keyed ? keySeen.get(column) : undefined;
+            if (seen) {
+              if (seen.has(value))
+                report(
+                  table,
+                  target,
+                  column,
+                  engine === 'mongo' && column.key === 'PRI'
+                    ? 'duplicate _id value'
+                    : `duplicate value in a ${column.key === 'PRI' ? 'primary' : 'unique'} key`,
+                  'fail',
+                  value,
+                );
+              else seen.add(value);
+            }
+          }
+        }
+      }
+    }
+
+    return [...issues.values()].sort(
+      (a, b) =>
+        Number(a.effect === 'null') - Number(b.effect === 'null') ||
+        b.count - a.count,
+    );
+  }
+
+  // ------------------------------------------------------------ SQL
+
+  private *generateSql(plan: InternalPlan): Generator<SqlChunk> {
+    const { options } = plan;
+    const tables = plan.tables.filter((t) => !t.excluded);
+
+    yield {
+      sql:
+        exportComment(
+          'MySQL dump generated by Data Migrator\n' +
+            new Date().toISOString() +
+            '\nMode: ' +
+            MODE_DESCRIPTION[options.writeMode] +
+            (options.writeMode === 'sync' && options.syncDeletes
+              ? ', rows no longer present in the source are deleted'
+              : '') +
+            '\nTables: ' +
+            tables
+              .map(
+                (t) =>
+                  t.table + ' (' + t.fileName + ', rows: ' + t.rowCount + ')',
+              )
+              .join(', '),
+          '--',
+        ) + '\n',
+    };
+    for (const w of plan.warnings)
+      yield { sql: exportComment('WARNING: ' + w, '--') };
+    for (const q of plan.quality)
+      yield {
+        sql: exportComment(
+          (q.effect === 'fail' ? 'DATA ERROR' : 'DATA LOSS') +
+            ': ' +
+            q.table +
+            '.' +
+            q.column +
+            ': ' +
+            q.problem +
+            ' (values: ' +
+            q.count +
+            ')',
+          '--',
+        ),
+      };
+    // Values are escaped with backslashes, which NO_BACKSLASH_ESCAPES would turn into literal text.
+    yield {
+      sql:
+        '\nSET NAMES utf8mb4;\n' +
+        'SET @DBF_OLD_SQL_MODE = @@SESSION.sql_mode;\n' +
+        "SET SESSION sql_mode = CONCAT_WS(',', 'STRICT_ALL_TABLES', NULLIF(REPLACE(@@SESSION.sql_mode, 'NO_BACKSLASH_ESCAPES', ''), ''));\n" +
+        'SET FOREIGN_KEY_CHECKS = 0;\n\n',
+    };
+
+    if (options.database) {
+      const db = quoteIdent(options.database);
+      yield {
+        sql: `CREATE DATABASE IF NOT EXISTS ${db} CHARACTER SET utf8mb4 COLLATE ${TABLE_COLLATION};\nUSE ${db};\n\n`,
+      };
+    }
+
+    const sync = options.writeMode === 'sync';
+    for (const table of tables) {
+      yield { sql: this.createTableSql(table, options), table: table.table };
+      if (options.includeData) {
+        const upsert = sync && primaryKeyOf(table) !== undefined;
+        // Without a key there is no telling which row is which: empty the table and load it again.
+        if (sync && !upsert)
+          yield {
+            sql: `DELETE FROM ${quoteIdent(table.table)};\n`,
+            table: table.table,
+            sync: 'reload',
+          };
+        yield* this.insertSql(table, options, 'live');
+        if (upsert && options.syncDeletes)
+          yield* this.syncDeleteSql(table, options);
+      }
+      if (table.deletedTable) {
+        yield {
+          sql: this.createDeletedTableSql(table, options),
+          table: table.deletedTable,
+        };
+        // The deleted copy is a snapshot of what is marked deleted now; record numbers move after PACK.
+        if (sync)
+          yield {
+            sql: `DELETE FROM ${quoteIdent(table.deletedTable)};\n`,
+            table: table.deletedTable,
+            sync: 'reload',
+          };
+        yield* this.insertSql(table, options, 'deleted');
+      }
+    }
+
+    if (plan.foreignKeys.length > 0)
+      yield { sql: '-- Foreign keys\n', foreignKeys: true };
+    for (const { name, child, parent } of plan.accepted) {
+      const alter =
+        `ALTER TABLE ${quoteIdent(child.table.table)} ADD CONSTRAINT ${quoteIdent(name)} ` +
+        `FOREIGN KEY (${quoteIdent(child.column.column)}) ` +
+        `REFERENCES ${quoteIdent(parent.table.table)} (${quoteIdent(parent.column.column)})`;
+      yield {
+        sql:
+          options.writeMode === 'replace'
+            ? `${alter};\n`
+            : unlessConstraintExists(child.table.table, name, alter),
+        foreignKeys: true,
+      };
+    }
+    for (const fk of plan.foreignKeys) {
+      if (fk.status === 'skip')
+        yield {
+          sql: exportComment(
+            'skipped: ' +
+              fk.childTable +
+              '.' +
+              fk.childColumn +
+              ' -> ' +
+              fk.parentTable +
+              '.' +
+              fk.parentColumn +
+              ': ' +
+              fk.reason,
+            '--',
+          ),
+        };
+    }
+
+    yield {
+      sql: '\nSET FOREIGN_KEY_CHECKS = 1;\nSET SESSION sql_mode = @DBF_OLD_SQL_MODE;\n',
+    };
+  }
+
+  private createTableSql(
+    table: TableSpec,
+    options: MysqlExportOptions,
+  ): string {
+    const columns = active(table);
+    const lines = columns.map(
+      (c) =>
+        `  ${quoteIdent(c.column)} ${c.mysqlType}` +
+        (c.collation ? ` CHARACTER SET utf8mb4 COLLATE ${c.collation}` : '') +
+        (c.nullable ? ' NULL' : ' NOT NULL') +
+        ` COMMENT ${quoteString(`source ${describeField(c.field)}`)}`,
+    );
+    const primary = columns.filter((c) => c.key === 'PRI');
+    if (primary.length > 0)
+      lines.push(
+        `  PRIMARY KEY (${primary.map((c) => quoteIdent(c.column)).join(', ')})`,
+      );
+    for (const c of columns) {
+      if (c.key === 'UNI')
+        lines.push(
+          `  UNIQUE KEY ${quoteIdent(`uq_${c.column}`.slice(0, MAX_IDENTIFIER))} (${quoteIdent(c.column)})`,
+        );
+    }
+    for (const ix of table.indexes) {
+      if (ix.status === 'create')
+        lines.push(
+          `  KEY ${quoteIdent(ix.name)} (${ix.parts.map(indexColumnSql).join(', ')}) COMMENT ${quoteString(`CDX tag ${ix.tag.name}: ${ix.tag.expression}`.slice(0, 1024))}`,
+        );
+    }
+
+    return this.createSql(
+      table.table,
+      lines,
+      `Imported from ${table.fileName}`,
+      options,
+    );
+  }
+
+  /** Same columns as the table, all nullable and without keys, plus the record number. */
+  private createDeletedTableSql(
+    table: TableSpec,
+    options: MysqlExportOptions,
+  ): string {
+    const lines = [
+      `  ${quoteIdent(RECNO_COLUMN)} INT UNSIGNED NOT NULL COMMENT 'source record number'`,
+      ...active(table).map(
+        (c) =>
+          `  ${quoteIdent(c.column)} ${c.mysqlType} NULL COMMENT ${quoteString(`source ${describeField(c.field)}`)}`,
+      ),
+      `  PRIMARY KEY (${quoteIdent(RECNO_COLUMN)})`,
+    ];
+    return this.createSql(
+      table.deletedTable!,
+      lines,
+      `Records marked as deleted in ${table.fileName}`,
+      options,
+    );
+  }
+
+  private createSql(
+    table: string,
+    lines: readonly string[],
+    comment: string,
+    options: MysqlExportOptions,
+  ): string {
+    const name = quoteIdent(table);
+    const replace = options.writeMode === 'replace';
+    return (
+      (replace ? `DROP TABLE IF EXISTS ${name};\n` : '') +
+      `CREATE TABLE ${replace ? '' : 'IF NOT EXISTS '}${name} (\n${lines.join(',\n')}\n) ` +
+      `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=${TABLE_COLLATION} ` +
+      `COMMENT=${quoteString(comment)};\n\n`
+    );
+  }
+
+  /**
+   * INSERT batches for the live records (an upsert on the primary key in sync mode) or for the
+   * records marked deleted (into <table>_deleted, with their record numbers).
+   */
+  private *insertSql(
+    table: TableSpec,
+    options: MysqlExportOptions,
+    set: RecordSet,
+  ): Generator<SqlChunk> {
+    const columns = active(table);
+    const deleted = set === 'deleted';
+    const target = deleted ? table.deletedTable! : table.table;
+    const names = [
+      ...(deleted ? [RECNO_COLUMN] : []),
+      ...columns.map((c) => c.column),
+    ].map(quoteIdent);
+    const pk = deleted ? undefined : primaryKeyOf(table);
+    const upsert = options.writeMode === 'sync' && pk !== undefined;
+
+    const head = `INSERT INTO ${quoteIdent(target)} (${names.join(', ')}) VALUES\n`;
+    let tail = '';
+    if (upsert) {
+      const updates = columns
+        .filter((c) => c !== pk)
+        .map(
+          (c) => `${quoteIdent(c.column)} = VALUES(${quoteIdent(c.column)})`,
+        );
+      // A table that is nothing but its key still needs a no-op so the duplicate is not an error.
+      tail = `\nON DUPLICATE KEY UPDATE ${updates.length > 0 ? updates.join(', ') : `${quoteIdent(pk.column)} = ${quoteIdent(pk.column)}`}`;
+    }
+
+    let batch: string[] = [];
+    let batchChars = 0;
+    const flush = (): SqlChunk => {
+      const chunk: SqlChunk = {
+        sql: `${head}${batch.join(',\n')}${tail};\n`,
+        table: target,
+        rows: batch.length,
+        sync: upsert ? 'upsert' : undefined,
+      };
+      batch = [];
+      batchChars = 0;
+      return chunk;
+    };
+
+    for (const record of iterateRecords(
+      table.source,
+      table.result.header,
+      set,
+    )) {
+      // The deleted copy has no foreign keys, so it keeps every value as the DBF has it.
+      const values = columns.map((c) =>
+        sqlLiteral(
+          c.kind,
+          (deleted ? decodeValue : exportValue)(
+            c,
+            record,
+            table,
+            options.emptyStringsAsNull,
+          ),
+        ),
+      );
+      if (deleted)
+        values.unshift(
+          String(recordNumberOf(table.source, table.result.header, record)),
+        );
+      const row = `(${values.join(', ')})`;
+      batch.push(row);
+      batchChars += row.length;
+      if (batch.length >= INSERT_BATCH_ROWS || batchChars >= INSERT_BATCH_CHARS)
+        yield flush();
+    }
+    if (batch.length > 0) yield flush();
+    yield { sql: '\n' };
+  }
+
+  /**
+   * Sync: deletes the MySQL rows whose primary key is not among the DBF's live records any more
+   * (deleted or packed away in the old system). The live keys go to a temporary table first.
+   */
+  private *syncDeleteSql(
+    table: TableSpec,
+    options: MysqlExportOptions,
+  ): Generator<SqlChunk> {
+    const pk = primaryKeyOf(table)!;
+    const keys = quoteIdent(SYNC_KEYS_TABLE);
+    yield {
+      sql:
+        `DROP TEMPORARY TABLE IF EXISTS ${keys};\n` +
+        `CREATE TEMPORARY TABLE ${keys} (\`k\` ${pk.mysqlType}` +
+        (pk.collation ? ` CHARACTER SET utf8mb4 COLLATE ${pk.collation}` : '') +
+        ' NOT NULL, PRIMARY KEY (`k`)) ENGINE=InnoDB;\n',
+      table: table.table,
+    };
+    let batch: string[] = [];
+    for (const record of iterateRecords(table.source, table.result.header)) {
+      batch.push(
+        `(${sqlLiteral(pk.kind, decodeValue(pk, record, table, options.emptyStringsAsNull))})`,
+      );
+      if (batch.length >= INSERT_BATCH_ROWS * 4) {
+        yield {
+          sql: `INSERT INTO ${keys} (\`k\`) VALUES ${batch.join(', ')};\n`,
+          table: table.table,
+        };
+        batch = [];
+      }
+    }
+    if (batch.length > 0)
+      yield {
+        sql: `INSERT INTO ${keys} (\`k\`) VALUES ${batch.join(', ')};\n`,
+        table: table.table,
+      };
+    const t = quoteIdent(table.table);
+    yield {
+      sql: `DELETE ${t} FROM ${t} LEFT JOIN ${keys} AS \`s\` ON \`s\`.\`k\` = ${t}.${quoteIdent(pk.column)} WHERE \`s\`.\`k\` IS NULL;\n`,
+      table: table.table,
+      sync: 'delete',
+    };
+    yield { sql: `DROP TEMPORARY TABLE ${keys};\n\n`, table: table.table };
+  }
 }
 
-const MODE_DESCRIPTION: Readonly<Record<MysqlExportOptions['writeMode'], string>> = {
-    replace: "replace (tables are dropped and recreated)",
-    append: "append (missing tables are created and rows are added)",
-    sync: "sync (missing tables are created, new rows are inserted, changed rows are updated by primary key)",
-}
+const MODE_DESCRIPTION: Readonly<
+  Record<MysqlExportOptions['writeMode'], string>
+> = {
+  replace: 'replace (tables are dropped and recreated)',
+  append: 'append (missing tables are created and rows are added)',
+  sync: 'sync (missing tables are created, new rows are inserted, changed rows are updated by primary key)',
+};
